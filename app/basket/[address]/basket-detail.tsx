@@ -18,6 +18,7 @@ import {
 import {
   CompositionBar,
   Header,
+  IconActivity,
   IconArrowRight,
   IconBox,
   IconWallet,
@@ -95,6 +96,7 @@ export function BasketDetail({ address }: { address: string }) {
   const [status, setStatus] = useState("");
   const [txHash, setTxHash] = useState<Hex | null>(null);
   const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const { data: officialTokens } = useOfficialStockTokens();
   const account = connection.address;
   const amountParsed = parseShareAmount(amount);
@@ -243,10 +245,20 @@ export function BasketDetail({ address }: { address: string }) {
   );
 
   async function runTransaction() {
-    if (!walletClient || !publicClient || !account || !basketAddress) return;
+    if (
+      isSubmitting ||
+      !walletClient ||
+      !publicClient ||
+      !account ||
+      !basketAddress
+    ) {
+      return;
+    }
 
     setError("");
     setTxHash(null);
+    setIsSubmitting(true);
+    setStatus("PREPARING TRANSACTION");
 
     try {
       if (!chainReady) {
@@ -267,7 +279,7 @@ export function BasketDetail({ address }: { address: string }) {
 
         for (const approval of missingApprovals) {
           if (approval.allowance > ZERO) {
-            setStatus(`RESETTING ${formatAddress(approval.asset)} APPROVAL`);
+            setStatus(`CONFIRM RESET FOR ${formatAddress(approval.asset)}`);
             const resetHash = await walletClient.writeContract({
               account,
               chain: targetChain,
@@ -277,10 +289,11 @@ export function BasketDetail({ address }: { address: string }) {
               args: [basketAddress, ZERO],
             });
             setTxHash(resetHash);
+            setStatus(`CONFIRMING RESET FOR ${formatAddress(approval.asset)}`);
             await publicClient.waitForTransactionReceipt({ hash: resetHash });
           }
 
-          setStatus(`APPROVING ${formatAddress(approval.asset)}`);
+          setStatus(`CONFIRM APPROVAL FOR ${formatAddress(approval.asset)}`);
           const approvalHash = await walletClient.writeContract({
             account,
             chain: targetChain,
@@ -290,10 +303,11 @@ export function BasketDetail({ address }: { address: string }) {
             args: [basketAddress, approval.required],
           });
           setTxHash(approvalHash);
+          setStatus(`CONFIRMING APPROVAL FOR ${formatAddress(approval.asset)}`);
           await publicClient.waitForTransactionReceipt({ hash: approvalHash });
         }
 
-        setStatus("MINTING BASKET");
+        setStatus("CONFIRM MINT IN WALLET");
         const hash = await walletClient.writeContract({
           account,
           chain: targetChain,
@@ -303,6 +317,7 @@ export function BasketDetail({ address }: { address: string }) {
           args: [amountParsed],
         });
         setTxHash(hash);
+        setStatus("CONFIRMING MINT ON-CHAIN");
         await publicClient.waitForTransactionReceipt({ hash });
         await saveTransactionMetadata({
           chainId: targetChain.id,
@@ -321,7 +336,7 @@ export function BasketDetail({ address }: { address: string }) {
           return;
         }
 
-        setStatus("REDEEMING BASKET");
+        setStatus("CONFIRM REDEMPTION IN WALLET");
         const hash = await walletClient.writeContract({
           account,
           chain: targetChain,
@@ -331,6 +346,7 @@ export function BasketDetail({ address }: { address: string }) {
           args: [amountParsed],
         });
         setTxHash(hash);
+        setStatus("CONFIRMING REDEMPTION ON-CHAIN");
         await publicClient.waitForTransactionReceipt({ hash });
         await saveTransactionMetadata({
           chainId: targetChain.id,
@@ -354,7 +370,7 @@ export function BasketDetail({ address }: { address: string }) {
           return;
         }
 
-        setStatus("TRANSFERRING BASKET");
+        setStatus("CONFIRM TRANSFER IN WALLET");
         const hash = await walletClient.writeContract({
           account,
           chain: targetChain,
@@ -364,6 +380,7 @@ export function BasketDetail({ address }: { address: string }) {
           args: [recipient, amountParsed],
         });
         setTxHash(hash);
+        setStatus("CONFIRMING TRANSFER ON-CHAIN");
         await publicClient.waitForTransactionReceipt({ hash });
         await saveTransactionMetadata({
           chainId: targetChain.id,
@@ -388,6 +405,8 @@ export function BasketDetail({ address }: { address: string }) {
     } catch (caught) {
       setStatus("");
       setError(getErrorText(caught));
+    } finally {
+      setIsSubmitting(false);
     }
   }
 
@@ -602,7 +621,8 @@ export function BasketDetail({ address }: { address: string }) {
                   key={item}
                   type="button"
                   onClick={() => setTab(item)}
-                  className={`border-r border-[#20252C] px-1 py-4 font-mono text-[10px] transition-colors last:border-r-0 ${
+                  disabled={isSubmitting}
+                  className={`border-r border-[#20252C] px-1 py-4 font-mono text-[10px] transition-colors last:border-r-0 disabled:cursor-not-allowed disabled:opacity-50 ${
                     tab === item
                       ? "bg-[#397BFF] text-[#080A0C]"
                       : "text-[#7B828C] hover:bg-[#151A20] hover:text-[#F1F1EA]"
@@ -623,8 +643,9 @@ export function BasketDetail({ address }: { address: string }) {
                   onChange={(event) =>
                     setAmount(event.target.value.replace(/[^0-9.]/g, ""))
                   }
+                  disabled={isSubmitting}
                   inputMode="decimal"
-                  className="min-w-0 flex-1 bg-transparent px-4 py-3 font-mono text-lg outline-none"
+                  className="min-w-0 flex-1 bg-transparent px-4 py-3 font-mono text-lg outline-none disabled:cursor-not-allowed disabled:text-[#7B828C]"
                 />
                 <span className="flex items-center border-l border-[#20252C] px-3 font-mono text-xs text-[#7B828C]">
                   {symbol.data ?? "BASKET"}
@@ -635,8 +656,9 @@ export function BasketDetail({ address }: { address: string }) {
                 <input
                   value={recipient}
                   onChange={(event) => setRecipient(event.target.value)}
+                  disabled={isSubmitting}
                   placeholder="0x recipient"
-                  className="w-full border border-[#20252C] bg-[#0B0E12] px-4 py-3 font-mono text-xs outline-none placeholder:text-[#7B828C] focus:border-[#397BFF]"
+                  className="w-full border border-[#20252C] bg-[#0B0E12] px-4 py-3 font-mono text-xs outline-none placeholder:text-[#7B828C] focus:border-[#397BFF] disabled:cursor-not-allowed disabled:text-[#7B828C]"
                 />
               ) : null}
 
@@ -687,24 +709,37 @@ export function BasketDetail({ address }: { address: string }) {
 
               <button
                 type="button"
-                disabled={!canRunOperation || (tab === "MINT" && missingBalance)}
+                disabled={
+                  isSubmitting ||
+                  !canRunOperation ||
+                  (tab === "MINT" && missingBalance)
+                }
                 onClick={runTransaction}
                 className="flex w-full items-center justify-center gap-2 bg-[#397BFF] px-4 py-3 font-mono text-xs font-bold text-[#080A0C] transition-colors hover:bg-[#6B99FF] disabled:cursor-not-allowed disabled:bg-[#20252C] disabled:text-[#7B828C]"
               >
-                <IconWallet size={15} />
+                {isSubmitting ? (
+                  <IconActivity size={15} className="animate-spin" />
+                ) : (
+                  <IconWallet size={15} />
+                )}
                 <span>
-                  {tab === "MINT" && missingApprovals.length > 0
-                    ? "APPROVE & MINT"
-                    : tab === "REDEEM"
-                      ? "REDEEM"
-                      : tab === "TRANSFER"
-                        ? "TRANSFER"
-                        : "MINT"}
+                  {isSubmitting
+                    ? status || "PROCESSING"
+                    : tab === "MINT" && missingApprovals.length > 0
+                      ? "APPROVE & MINT"
+                      : tab === "REDEEM"
+                        ? "REDEEM"
+                        : tab === "TRANSFER"
+                          ? "TRANSFER"
+                          : "MINT"}
                 </span>
               </button>
 
               {status ? (
-                <p className="mono-label text-[#397BFF]">{status}</p>
+                <p className="mono-label flex items-center gap-2 text-[#397BFF]" aria-live="polite">
+                  {isSubmitting ? <IconActivity size={12} className="animate-spin" /> : null}
+                  {status}
+                </p>
               ) : null}
               {txHash ? (
                 <a
