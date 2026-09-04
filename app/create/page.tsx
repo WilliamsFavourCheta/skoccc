@@ -3,10 +3,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Address } from "viem";
-import { decodeEventLog, zeroAddress } from "viem";
+import { decodeEventLog } from "viem";
 import {
   useConnection,
   useReadContract,
+  useReadContracts,
   useWaitForTransactionReceipt,
   useWriteContract,
 } from "wagmi";
@@ -16,7 +17,7 @@ import {
   IconArrowRight,
   IconSearch,
 } from "../components";
-import { basketFactoryAbi } from "../contracts/abis";
+import { basketFactoryAbi, basketVaultAbi } from "../contracts/abis";
 import {
   getBasketFactoryAddress,
   getMissingFactoryMessage,
@@ -131,16 +132,41 @@ export default function CreateBasket() {
   } = useOfficialStockTokens();
   const factoryAddress = getBasketFactoryAddress();
   const missingFactoryMessage = getMissingFactoryMessage();
-  const tickerLookup = useReadContract({
+  const normalizedTicker = ticker.trim().toLowerCase();
+  const factoryBaskets = useReadContract({
     address: factoryAddress ?? undefined,
     abi: basketFactoryAbi,
-    functionName: "getBasketByTicker",
-    args: ticker.trim() ? [ticker.trim()] : undefined,
+    functionName: "getBaskets",
     query: {
-      enabled: Boolean(factoryAddress && ticker.trim()),
+      enabled: Boolean(factoryAddress && normalizedTicker),
     },
   });
-  const tickerTaken = tickerLookup.data && tickerLookup.data !== zeroAddress;
+  const tickerSymbolReads = useReadContracts({
+    contracts: (factoryBaskets.data ?? []).map((address) => ({
+      address,
+      abi: basketVaultAbi,
+      functionName: "symbol" as const,
+    })),
+    query: {
+      enabled: Boolean(normalizedTicker && (factoryBaskets.data?.length ?? 0) > 0),
+    },
+  });
+  const tickerTaken = (tickerSymbolReads.data ?? []).some((read) => {
+    const basketSymbol = read.result;
+
+    return (
+      typeof basketSymbol === "string" &&
+      basketSymbol.trim().toLowerCase() === normalizedTicker
+    );
+  });
+  const tickerAvailabilityLoading =
+    Boolean(normalizedTicker) &&
+    (factoryBaskets.isLoading ||
+      factoryBaskets.isFetching ||
+      ((factoryBaskets.data?.length ?? 0) > 0 &&
+        (tickerSymbolReads.isLoading || tickerSymbolReads.isFetching)));
+  const tickerAvailabilityError =
+    factoryBaskets.error ?? tickerSymbolReads.error;
   const weightBps = useMemo(
     () => composition.map((asset) => Math.round(asset.weight * 100)),
     [composition],
@@ -175,6 +201,9 @@ export default function CreateBasket() {
     connectedToTarget &&
     validComposition &&
     composition.length > 0 &&
+    !tickerAvailabilityLoading &&
+    !tickerAvailabilityError &&
+    !tickerTaken &&
     !isDeploying &&
     !deployConfirmed;
   const deployTransactionUrl = deployHash ? getTransactionUrl(deployHash) : null;
@@ -300,18 +329,18 @@ export default function CreateBasket() {
         return;
       }
 
-      if (tickerLookup.isLoading || tickerLookup.isFetching) {
+      if (tickerAvailabilityLoading) {
         showToast("Checking ticker availability.", "info");
         return;
       }
 
-      if (tickerLookup.error) {
+      if (tickerAvailabilityError) {
         showToast("Unable to verify ticker availability. Try again.", "error");
         return;
       }
 
       if (tickerTaken) {
-        showToast("Ticker already taken. Choose another ticker.", "error");
+        showToast("Ticker already created. Choose another ticker.", "error");
         return;
       }
 
@@ -381,8 +410,18 @@ export default function CreateBasket() {
       return;
     }
 
+    if (tickerAvailabilityLoading) {
+      showToast("Checking ticker availability.", "info");
+      return;
+    }
+
+    if (tickerAvailabilityError) {
+      showToast("Unable to verify ticker availability. Try again.", "error");
+      return;
+    }
+
     if (tickerTaken) {
-      showToast("Ticker already taken. Choose another ticker.", "error");
+      showToast("Ticker already created. Choose another ticker.", "error");
       return;
     }
 
@@ -620,6 +659,27 @@ export default function CreateBasket() {
                   onChange={(value) => setTicker(value.toUpperCase().slice(0, 5))}
                   placeholder="e.g. FTRS"
                 />
+                {normalizedTicker ? (
+                  <p
+                    className={`mono-label -mt-3 md:col-start-2 ${
+                      tickerAvailabilityError
+                        ? "text-red-300"
+                        : tickerTaken
+                          ? "text-red-300"
+                          : tickerAvailabilityLoading
+                            ? "text-[#7B828C]"
+                            : "text-[#397BFF]"
+                    }`}
+                  >
+                    {tickerAvailabilityError
+                      ? "TICKER CHECK UNAVAILABLE"
+                      : tickerAvailabilityLoading
+                        ? "CHECKING TICKER..."
+                        : tickerTaken
+                          ? "TICKER ALREADY CREATED"
+                          : "TICKER AVAILABLE"}
+                  </p>
+                ) : null}
                 <Field
                   wide
                   label="DESCRIPTION"

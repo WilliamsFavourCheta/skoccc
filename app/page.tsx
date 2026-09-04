@@ -1,3 +1,9 @@
+"use client";
+
+import Link from "next/link";
+import { useMemo } from "react";
+import { formatUnits, type Address } from "viem";
+import { useBlockNumber, useReadContract, useReadContracts } from "wagmi";
 import {
   CompositionBar,
   Footer,
@@ -9,7 +15,15 @@ import {
   MarketTape,
   MetricCard,
 } from "./components";
-import { aixAssets, landingMarkets } from "./data";
+import type { AssetWeight } from "./data";
+import { basketFactoryAbi, basketVaultAbi } from "./contracts/abis";
+import {
+  getBasketFactoryAddress,
+  getMissingFactoryMessage,
+} from "./contracts/addresses";
+import { useOfficialStockTokens } from "./hooks/use-stock-tokens";
+import { targetChain } from "./web3/chains";
+import { formatAddress, getErrorText } from "./web3/format";
 
 const mechanism = [
   {
@@ -32,7 +46,133 @@ const mechanism = [
   },
 ];
 
+const ZERO = BigInt(0);
+
+type HomeBasket = {
+  address: Address;
+  name: string;
+  symbol: string;
+  totalSupply: bigint;
+  mintingPaused: boolean;
+  assets: Address[];
+  weights: number[];
+};
+
+function readResult<T>(
+  reads: readonly { result?: unknown }[] | undefined,
+  index: number,
+  fallback: T,
+) {
+  return (reads?.[index]?.result as T | undefined) ?? fallback;
+}
+
+function formatTokenAmount(value: bigint, maximumFractionDigits = 4) {
+  return Number(formatUnits(value, 18)).toLocaleString("en-US", {
+    maximumFractionDigits,
+    minimumFractionDigits: 0,
+  });
+}
+
 export default function Home() {
+  const factoryAddress = getBasketFactoryAddress();
+  const stockTokens = useOfficialStockTokens(targetChain.id, {
+    includePrices: true,
+  });
+  const factoryBaskets = useReadContract({
+    address: factoryAddress ?? undefined,
+    abi: basketFactoryAbi,
+    functionName: "getBaskets",
+    query: {
+      enabled: Boolean(factoryAddress),
+      refetchInterval: 15_000,
+    },
+  });
+  const basketAddresses = useMemo(
+    () => [...(factoryBaskets.data ?? [])] as Address[],
+    [factoryBaskets.data],
+  );
+  const basketReads = useReadContracts({
+    contracts: basketAddresses.flatMap((address) => [
+      { address, abi: basketVaultAbi, functionName: "name" as const },
+      { address, abi: basketVaultAbi, functionName: "symbol" as const },
+      { address, abi: basketVaultAbi, functionName: "totalSupply" as const },
+      { address, abi: basketVaultAbi, functionName: "mintingPaused" as const },
+      { address, abi: basketVaultAbi, functionName: "getComposition" as const },
+    ]),
+    query: {
+      enabled: basketAddresses.length > 0,
+      refetchInterval: 15_000,
+    },
+  });
+  const blockNumber = useBlockNumber({
+    chainId: targetChain.id,
+    query: { refetchInterval: 15_000 },
+  });
+  const tokenMetadata = useMemo(
+    () =>
+      new Map(
+        stockTokens.data.map((token) => [
+          token.contractAddress.toLowerCase(),
+          token,
+        ]),
+      ),
+    [stockTokens.data],
+  );
+  const baskets = useMemo(() => {
+    const reads = basketReads.data;
+
+    return basketAddresses.map((address, index) => {
+      const offset = index * 5;
+      const composition = readResult<readonly [readonly Address[], readonly number[]]>(
+        reads,
+        offset + 4,
+        [[], []],
+      );
+
+      return {
+        address,
+        name: readResult(reads, offset, "Unnamed basket"),
+        symbol: readResult(reads, offset + 1, "BASKET"),
+        totalSupply: readResult(reads, offset + 2, ZERO),
+        mintingPaused: readResult(reads, offset + 3, false),
+        assets: [...composition[0]],
+        weights: composition[1].map(Number),
+      } satisfies HomeBasket;
+    });
+  }, [basketAddresses, basketReads.data]);
+  const featuredBasket = baskets.at(-1);
+  const featuredAssets = useMemo<AssetWeight[]>(
+    () =>
+      (featuredBasket?.assets ?? []).map((asset, index) => ({
+        symbol:
+          tokenMetadata.get(asset.toLowerCase())?.symbol ?? formatAddress(asset),
+        weight: (featuredBasket?.weights[index] ?? 0) / 100,
+      })),
+    [featuredBasket, tokenMetadata],
+  );
+  const tapeItems = useMemo(
+    () =>
+      stockTokens.data.map((token) => ({
+        symbol: token.symbol,
+        price:
+          token.priceUsd === null
+            ? null
+            : token.priceUsd.toLocaleString("en-US", {
+                maximumFractionDigits: 2,
+                minimumFractionDigits: 2,
+              }),
+        status: targetChain.testnet ? "TESTNET" : "LIVE",
+      })),
+    [stockTokens.data],
+  );
+  const readError = getErrorText(factoryBaskets.error ?? basketReads.error);
+  const loadingBaskets =
+    factoryBaskets.isLoading ||
+    factoryBaskets.isFetching ||
+    basketReads.isLoading ||
+    basketReads.isFetching;
+  const mintableBaskets = baskets.filter((basket) => !basket.mintingPaused).length;
+
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#080A0C] text-[#F1F1EA]">
       <div className="technical-grid" aria-hidden="true" />
@@ -80,7 +220,21 @@ export default function Home() {
           </div>
         </section>
 
-        <MarketTape />
+        {stockTokens.loading ? (
+          <div className="border-y border-[#20252C] px-6 py-3 font-mono text-xs text-[#7B828C]">
+            LOADING APPROVED STOCK TOKENS...
+          </div>
+        ) : stockTokens.error ? (
+          <div className="border-y border-[#FF5555]/50 px-6 py-3 font-mono text-xs text-[#FF5555]">
+            TOKEN REGISTRY UNAVAILABLE: {stockTokens.error}
+          </div>
+        ) : tapeItems.length > 0 ? (
+          <MarketTape items={tapeItems} />
+        ) : (
+          <div className="border-y border-[#20252C] px-6 py-3 font-mono text-xs text-[#7B828C]">
+            NO APPROVED STOCK TOKENS CONFIGURED FOR {targetChain.name.toUpperCase()}.
+          </div>
+        )}
 
         <section className="reveal-on-scroll mx-auto max-w-7xl px-6 py-24 lg:px-12 lg:py-36">
           <div className="mb-14 flex items-start justify-between border-b border-[#20252C] pb-6">
@@ -119,35 +273,65 @@ export default function Home() {
                 </div>
               </div>
             </div>
-            <article className="alive-ring reveal-on-scroll reveal-delay-1 border border-[#20252C] bg-[#101418] p-6 sm:p-8">
+            <article className="alive-ring border border-[#20252C] bg-[#101418] p-6 sm:p-8">
               <div className="flex items-start justify-between border-b border-[#20252C] pb-6">
                 <div>
-                  <p className="mono-label text-[#397BFF]">LIVE BASKET / 001</p>
+                  <p className="mono-label text-[#397BFF]">LATEST FACTORY BASKET</p>
                   <h3 className="mt-2 text-4xl font-black tracking-[-0.06em]">
-                    $AIX
+                    {loadingBaskets ? "LOADING" : featuredBasket ? `$${featuredBasket.symbol}` : "NO BASKET"}
                   </h3>
-                  <p className="mono-label mt-1">AI INFRASTRUCTURE INDEX</p>
+                  <p className="mono-label mt-1">
+                    {loadingBaskets
+                      ? "READING ROBINHOOD CHAIN"
+                      : featuredBasket?.name ?? "CREATE THE FIRST BASKET"}
+                  </p>
                 </div>
-                <span className="mono-label border border-[#397BFF] px-2 py-1 !text-[#397BFF]">
-                  MINTABLE
+                <span
+                  className={`mono-label border px-2 py-1 ${
+                    featuredBasket?.mintingPaused
+                      ? "border-[#FF5555]/60 !text-[#FF5555]"
+                      : "border-[#397BFF] !text-[#397BFF]"
+                  }`}
+                >
+                  {featuredBasket?.mintingPaused ? "MINT PAUSED" : "MINTABLE"}
                 </span>
               </div>
               <div className="grid grid-cols-2 gap-8 py-8">
                 <div>
-                  <p className="mono-label">NAV</p>
-                  <p className="financial-value mt-2 text-3xl">$128.42</p>
+                  <p className="mono-label">TOTAL SUPPLY</p>
+                  <p className="financial-value mt-2 text-3xl">
+                    {featuredBasket ? formatTokenAmount(featuredBasket.totalSupply) : "--"}
+                  </p>
                 </div>
                 <div>
-                  <p className="mono-label">24H CHANGE</p>
+                  <p className="mono-label">UNDERLYING ASSETS</p>
                   <p className="financial-value mt-2 text-3xl text-[#397BFF]">
-                    +2.84%
+                    {featuredBasket ? featuredBasket.assets.length.toString().padStart(2, "0") : "--"}
                   </p>
                 </div>
               </div>
-              <CompositionBar assets={aixAssets} showLegend />
-              <button className="mt-8 flex w-full items-center justify-between border border-[#397BFF] px-4 py-3 font-mono text-xs uppercase text-[#397BFF] transition-colors hover:bg-[#397BFF] hover:text-[#080A0C]">
-                VIEW BASKET <IconArrowRight className="h-4 w-4" />
-              </button>
+              {featuredAssets.length > 0 ? (
+                <CompositionBar assets={featuredAssets} showLegend />
+              ) : (
+                <p className="mono-label border-t border-[#20252C] pt-4 text-[#7B828C]">
+                  {readError ?? "ON-CHAIN BASKET DATA WILL APPEAR HERE."}
+                </p>
+              )}
+              {featuredBasket ? (
+                <Link
+                  href={`/basket/${featuredBasket.address}`}
+                  className="mt-8 flex w-full items-center justify-between border border-[#397BFF] px-4 py-3 font-mono text-xs uppercase text-[#397BFF] transition-colors hover:bg-[#397BFF] hover:text-[#080A0C]"
+                >
+                  VIEW BASKET <IconArrowRight className="h-4 w-4" />
+                </Link>
+              ) : (
+                <Link
+                  href="/create"
+                  className="mt-8 flex w-full items-center justify-between border border-[#397BFF] px-4 py-3 font-mono text-xs uppercase text-[#397BFF] transition-colors hover:bg-[#397BFF] hover:text-[#080A0C]"
+                >
+                  CREATE BASKET <IconArrowRight className="h-4 w-4" />
+                </Link>
+              )}
             </article>
           </div>
         </section>
@@ -205,59 +389,86 @@ export default function Home() {
             <table className="w-full min-w-[700px] border-collapse text-left">
               <thead>
                 <tr className="mono-label border-b border-[#20252C]">
-                  {[
-                    "MARKET",
-                    "DESCRIPTION",
-                    "NAV",
-                    "24H",
-                    "SUPPLY",
-                    "STATUS",
-                  ].map((heading) => (
+                {["BASKET", "COMPOSITION", "SUPPLY", "NETWORK", "STATUS", ""].map(
+                  (heading) => (
                     <th key={heading} className="p-4">
                       {heading}
                     </th>
-                  ))}
+                  ),
+                )}
                 </tr>
               </thead>
               <tbody>
-                {landingMarkets.map((market) => (
-                  <tr
-                    key={market.market}
-                    className="border-b border-[#20252C] last:border-0 hover:bg-[#151A20]"
-                  >
-                    <td className="p-4 font-mono font-bold text-[#F1F1EA]">
-                      {market.market}
-                    </td>
-                    <td className="mono-label p-4 !text-[#7B828C]">
-                      {market.name}
-                    </td>
-                    <td className="financial-value p-4">{market.nav}</td>
-                    <td
-                      className={`financial-value p-4 ${
-                        market.change.startsWith("+")
-                          ? "text-[#397BFF]"
-                          : "text-[#FF5555]"
-                      }`}
-                    >
-                      {market.change}
-                    </td>
-                    <td className="financial-value p-4 text-[#7B828C]">
-                      {market.supply}
-                    </td>
-                    <td className="p-4">
-                      <span
-                        className={`mono-label ${
-                          market.status === "LIVE"
-                            ? "text-[#397BFF]"
-                            : "text-[#7B828C]"
-                        }`}
-                      >
-                        <span className="mr-1 inline-block h-2 w-2 rounded-full bg-current" />
-                        {market.status}
-                      </span>
+                {loadingBaskets ? (
+                  <tr>
+                    <td colSpan={6} className="p-6 font-mono text-xs text-[#7B828C]">
+                      LOADING FACTORY BASKETS FROM ROBINHOOD CHAIN...
                     </td>
                   </tr>
-                ))}
+                ) : readError ? (
+                  <tr>
+                    <td colSpan={6} className="p-6 font-mono text-xs text-[#FF5555]">
+                      ON-CHAIN DATA UNAVAILABLE: {readError}
+                    </td>
+                  </tr>
+                ) : !factoryAddress ? (
+                  <tr>
+                    <td colSpan={6} className="p-6 font-mono text-xs text-[#FF5555]">
+                      FACTORY CONFIGURATION REQUIRED: {getMissingFactoryMessage()}
+                    </td>
+                  </tr>
+                ) : baskets.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="p-6 font-mono text-xs text-[#7B828C]">
+                      NO BASKETS HAVE BEEN CREATED BY THE CONFIGURED FACTORY.
+                    </td>
+                  </tr>
+                ) : (
+                  baskets.map((basket) => (
+                    <tr
+                      key={basket.address}
+                      className="border-b border-[#20252C] last:border-0 hover:bg-[#151A20]"
+                    >
+                      <td className="p-4 font-mono font-bold text-[#F1F1EA]">
+                        ${basket.symbol}
+                        <p className="mono-label mt-1 !text-[#7B828C]">{basket.name}</p>
+                      </td>
+                      <td className="mono-label p-4 !text-[#7B828C]">
+                        {basket.assets
+                          .map(
+                            (asset) =>
+                              tokenMetadata.get(asset.toLowerCase())?.symbol ??
+                              formatAddress(asset),
+                          )
+                          .join(" / ")}
+                      </td>
+                      <td className="financial-value p-4">
+                        {formatTokenAmount(basket.totalSupply)}
+                      </td>
+                      <td className="mono-label p-4 !text-[#7B828C]">
+                        {targetChain.testnet ? "TESTNET" : "MAINNET"}
+                      </td>
+                      <td className="p-4">
+                        <span
+                          className={`mono-label ${
+                            basket.mintingPaused ? "text-[#FF5555]" : "text-[#397BFF]"
+                          }`}
+                        >
+                          <span className="mr-1 inline-block h-2 w-2 rounded-full bg-current" />
+                          {basket.mintingPaused ? "MINT PAUSED" : "MINTABLE"}
+                        </span>
+                      </td>
+                      <td className="p-4 text-right">
+                        <Link
+                          href={`/basket/${basket.address}`}
+                          className="mono-label text-[#397BFF]"
+                        >
+                          OPEN
+                        </Link>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -281,7 +492,7 @@ export default function Home() {
             <div className="grid items-center gap-6 md:grid-cols-[1fr_auto_1.1fr_auto_1fr]">
               <div className="reveal-on-scroll reveal-delay-1 border border-[#20252C] bg-[#080A0C]/80 p-6">
                 <p className="mono-label">INPUT / UNDERLYING</p>
-                <p className="mt-4 font-mono text-xl">NVDA / MSFT / GOOGL</p>
+                <p className="mt-4 font-mono text-xl">APPROVED STOCK TOKENS</p>
                 <p className="mono-label mt-3 text-[#7B828C]">
                   WEIGHTED DEPOSIT
                 </p>
@@ -298,10 +509,10 @@ export default function Home() {
               <div className="reveal-on-scroll reveal-delay-3 border border-[#20252C] bg-[#080A0C]/80 p-6">
                 <p className="mono-label">OUTPUT / BASKET</p>
                 <p className="mt-4 font-mono text-xl text-[#397BFF]">
-                  $AIX TOKEN
+                  BASKET ERC-20
                 </p>
                 <p className="mono-label mt-3 text-[#7B828C]">
-                  LIQUID / REDEEMABLE
+                  TRANSFERABLE / REDEEMABLE
                 </p>
               </div>
             </div>
@@ -321,26 +532,26 @@ export default function Home() {
                 &gt; SYSTEM_METRICS --LIVE
               </p>
               <span className="mono-label text-[#397BFF]">
-                * BLOCK 18,420,991
+                * {blockNumber.data ? `BLOCK ${blockNumber.data.toLocaleString("en-US")}` : "CHAIN SYNCING"}
               </span>
             </div>
             <div className="grid gap-px bg-[#20252C] md:grid-cols-3">
               <MetricCard
-                label="TOTAL VALUE LOCKED"
-                value="$24.8M"
-                subValue="+12.4%"
-                trend="up"
+                label="APPROVED STOCK TOKENS"
+                value={stockTokens.loading ? "--" : stockTokens.data.length.toString()}
+                subValue={stockTokens.error ? "REGISTRY ERROR" : "REGISTRY"}
+                trend={stockTokens.error ? "down" : "neutral"}
               />
               <MetricCard
-                label="TOTAL MINTED"
-                value="184,209"
-                subValue="+8.2%"
-                trend="up"
+                label="MINTABLE BASKETS"
+                value={loadingBaskets ? "--" : mintableBaskets.toString()}
+                subValue="FACTORY READ"
+                trend="neutral"
               />
               <MetricCard
                 label="BASKETS CREATED"
-                value="1,204"
-                subValue="ALL TIME"
+                value={loadingBaskets ? "--" : baskets.length.toString()}
+                subValue={`${targetChain.testnet ? "TESTNET" : "MAINNET"} / ${targetChain.id}`}
                 trend="neutral"
               />
             </div>

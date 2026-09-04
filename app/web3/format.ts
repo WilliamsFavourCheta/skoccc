@@ -25,7 +25,7 @@ export function getErrorText(error: unknown) {
     }
 
     if (message.includes("tickeralreadyused") || message.includes("ticker already")) {
-      return "Ticker already taken. Choose another ticker.";
+      return "Ticker already created. Choose another ticker.";
     }
 
     if (

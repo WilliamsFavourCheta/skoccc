@@ -19,66 +19,6 @@ export type Market = {
   creator: string;
 };
 
-export const tapeItems = [
-  { symbol: "AIX", price: "128.42", change: 2.84 },
-  { symbol: "CHIP", price: "45.10", change: -1.12 },
-  { symbol: "MAG7", price: "3,412.00", change: 0.45 },
-  { symbol: "SAAS", price: "89.23", change: 1.2 },
-  { symbol: "SEMIS", price: "214.50", change: 3.12 },
-  { symbol: "DEFI", price: "12.45", change: -0.56 },
-  { symbol: "AUTO", price: "67.89", change: 0.15 },
-  { symbol: "ENERGY", price: "44.30", change: -2.31 },
-];
-
-export const aixAssets: AssetWeight[] = [
-  { symbol: "NVDA", weight: 40, color: "#397BFF" },
-  { symbol: "MSFT", weight: 35, color: "#6A98FF" },
-  { symbol: "GOOGL", weight: 25, color: "#AFC5FF" },
-];
-
-export const landingMarkets = [
-  {
-    market: "$AIX",
-    name: "AI INFRASTRUCTURE",
-    nav: "$128.42",
-    change: "+2.84%",
-    supply: "18,204",
-    status: "LIVE",
-  },
-  {
-    market: "$CHIP",
-    name: "SEMICONDUCTOR CORE",
-    nav: "$45.10",
-    change: "-1.12%",
-    supply: "42,891",
-    status: "LIVE",
-  },
-  {
-    market: "$MAG7",
-    name: "MEGA CAP INDEX",
-    nav: "$3,412.00",
-    change: "+0.45%",
-    supply: "6,105",
-    status: "LIVE",
-  },
-  {
-    market: "$SAAS",
-    name: "SOFTWARE COMPOUNDERS",
-    nav: "$89.23",
-    change: "+1.20%",
-    supply: "12,480",
-    status: "LIVE",
-  },
-  {
-    market: "$ENERGY",
-    name: "NEXT ENERGY",
-    nav: "$44.30",
-    change: "-2.31%",
-    supply: "3,740",
-    status: "PAUSED",
-  },
-];
-
 export const markets: Market[] = [
   {
     id: "ai-frontier",

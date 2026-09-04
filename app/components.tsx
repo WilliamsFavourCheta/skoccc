@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { SVGProps } from "react";
-import { tapeItems, type AssetWeight } from "./data";
+import type { AssetWeight } from "./data";
 import { WalletControl } from "./wallet-control";
 
 type IconProps = SVGProps<SVGSVGElement> & {
@@ -184,9 +184,8 @@ export function Footer() {
               SKO<span className="text-[#397BFF]">CCC</span>
             </div>
             <p className="mono-label max-w-xs text-[10px] leading-relaxed">
-              FULLY DECENTRALIZED ASSET COMPOSITION ENGINE. RUNNING ON
-              ROBINHOOD CHAIN PROTOCOL V2.4. SYSTEM STATUS:{" "}
-              <span className="text-[#397BFF]">OPERATIONAL</span>
+              ON-CHAIN ASSET COMPOSITION ENGINE FOR ROBINHOOD CHAIN STOCK
+              TOKENS. BASKET STATE IS READ FROM THE CONFIGURED NETWORK.
             </p>
           </div>
           <div className="flex flex-col gap-3">
@@ -288,11 +287,17 @@ export function CompositionBar({
   );
 }
 
+export type MarketTapeItem = {
+  symbol: string;
+  price: string | null;
+  status?: string;
+};
+
 export function MarketTape({
-  items = tapeItems,
+  items,
   isScrolling = true,
 }: {
-  items?: typeof tapeItems;
+  items: MarketTapeItem[];
   isScrolling?: boolean;
 }) {
   const shown = isScrolling ? [...items, ...items] : items;
@@ -314,16 +319,13 @@ export function MarketTape({
               {item.symbol}
             </span>
             <span className="financial-value text-sm text-[#F1F1EA]">
-              ${item.price}
+              {item.price ? `$${item.price}` : "PRICE UNAVAILABLE"}
             </span>
-            <span
-              className={`financial-value text-xs ${
-                item.change >= 0 ? "text-[#397BFF]" : "text-red-500"
-              }`}
-            >
-              {item.change >= 0 ? "+" : ""}
-              {item.change.toFixed(2)}%
-            </span>
+            {item.status ? (
+              <span className="financial-value text-xs text-[#397BFF]">
+                {item.status}
+              </span>
+            ) : null}
           </div>
         ))}
       </div>
