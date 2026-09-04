@@ -1,7 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
+import { formatUnits, type Address } from "viem";
+import { useConnection, useReadContract, useReadContracts } from "wagmi";
 import {
+  CompositionBar,
   Header,
   IconActivity,
   IconArrowRight,
@@ -9,32 +13,150 @@ import {
   IconWallet,
   MetricCard,
 } from "../components";
-import { vaultReserves } from "../data";
+import { basketFactoryAbi, basketVaultAbi, erc20Abi } from "../contracts/abis";
+import {
+  getBasketFactoryAddress,
+  getMissingFactoryMessage,
+} from "../contracts/addresses";
+import { useOfficialStockTokens } from "../hooks/use-stock-tokens";
+import { targetChain } from "../web3/chains";
+import { formatAddress, getErrorText } from "../web3/format";
+import { WalletControl } from "../wallet-control";
 
-const prices = [
-  112.4, 113.1, 112.8, 114.6, 114.1, 115.9, 116.4, 115.8, 117.2, 118.6, 117.9,
-  119.8, 120.4, 121.3, 120.9, 122.7, 123.5, 122.8, 124.1, 125.8, 124.9, 126.6,
-  127.3, 128.42,
-];
-const timeLabels = ["09:30", "11:00", "12:30", "14:00", "15:30", "16:00"];
-const tabs = ["OVERVIEW", "MINT", "REDEEM", "TRANSFER"] as const;
+const ZERO = BigInt(0);
+const MULTIPLIER_SCALE = BigInt(10) ** BigInt(18);
+
+function formatTokenAmount(value: bigint | undefined, maximumFractionDigits = 4) {
+  return Number(formatUnits(value ?? ZERO, 18)).toLocaleString("en-US", {
+    maximumFractionDigits,
+    minimumFractionDigits: 0,
+  });
+}
+
+function readResult<T>(
+  reads: readonly { result?: unknown }[] | undefined,
+  index: number,
+  fallback: T,
+) {
+  return (reads?.[index]?.result as T | undefined) ?? fallback;
+}
 
 export default function TerminalView() {
-  const [tab, setTab] = useState<(typeof tabs)[number]>("OVERVIEW");
-  const [amount, setAmount] = useState("1.00");
-  const [pair, setPair] = useState("AIX / USD");
-  const numericAmount = Number.parseFloat(amount) || 0;
-  const estimatedValue = useMemo(
-    () =>
-      (numericAmount * 128.42).toLocaleString("en-US", {
-        currency: "USD",
-        style: "currency",
-      }),
-    [numericAmount],
+  const connection = useConnection();
+  const factoryAddress = getBasketFactoryAddress();
+  const [selectedAddress, setSelectedAddress] = useState<Address | null>(null);
+  const tokenRegistry = useOfficialStockTokens(targetChain.id, {
+    includePrices: true,
+  });
+  const factoryBaskets = useReadContract({
+    address: factoryAddress ?? undefined,
+    abi: basketFactoryAbi,
+    functionName: "getBaskets",
+    query: {
+      enabled: Boolean(factoryAddress),
+      refetchInterval: 15_000,
+    },
+  });
+  const basketAddresses = useMemo(
+    () => [...(factoryBaskets.data ?? [])] as Address[],
+    [factoryBaskets.data],
   );
-  const chartPoints = prices
-    .map((price, index) => `${(index / (prices.length - 1)) * 100},${100 - ((price - 110) / 20) * 100}`)
-    .join(" ");
+
+  const activeAddress =
+    selectedAddress && basketAddresses.includes(selectedAddress)
+      ? selectedAddress
+      : (basketAddresses.at(-1) ?? null);
+
+  const basketReads = useReadContracts({
+    contracts: basketAddresses.flatMap((address) => [
+      { address, abi: basketVaultAbi, functionName: "name" as const },
+      { address, abi: basketVaultAbi, functionName: "symbol" as const },
+    ]),
+    query: {
+      enabled: basketAddresses.length > 0,
+      refetchInterval: 15_000,
+    },
+  });
+  const selectedBasket = useMemo(() => {
+    if (!activeAddress) return null;
+
+    const index = basketAddresses.findIndex((address) => address === activeAddress);
+
+    if (index < 0) return null;
+
+    return {
+      address: activeAddress,
+      name: readResult(basketReads.data, index * 2, "Unnamed basket"),
+      symbol: readResult(basketReads.data, index * 2 + 1, "BASKET"),
+    };
+  }, [activeAddress, basketAddresses, basketReads.data]);
+  const enabled = Boolean(selectedBasket);
+  const totalSupply = useReadContract({
+    address: selectedBasket?.address,
+    abi: basketVaultAbi,
+    functionName: "totalSupply",
+    query: { enabled, refetchInterval: 15_000 },
+  });
+  const walletBalance = useReadContract({
+    address: selectedBasket?.address,
+    abi: basketVaultAbi,
+    functionName: "balanceOf",
+    args: connection.address ? [connection.address] : undefined,
+    query: { enabled: enabled && Boolean(connection.address), refetchInterval: 15_000 },
+  });
+  const composition = useReadContract({
+    address: selectedBasket?.address,
+    abi: basketVaultAbi,
+    functionName: "getComposition",
+    query: { enabled, refetchInterval: 15_000 },
+  });
+  const reserves = useReadContract({
+    address: selectedBasket?.address,
+    abi: basketVaultAbi,
+    functionName: "getReserves",
+    query: { enabled, refetchInterval: 15_000 },
+  });
+  const [assets, weights] = useMemo(() => {
+    if (!composition.data) return [[], []] as [Address[], number[]];
+
+    return [
+      [...composition.data[0]],
+      composition.data[1].map(Number),
+    ] as [Address[], number[]];
+  }, [composition.data]);
+  const multiplierReads = useReadContracts({
+    contracts: assets.map((address) => ({
+      address,
+      abi: erc20Abi,
+      functionName: "uiMultiplier" as const,
+    })),
+    query: { enabled: assets.length > 0, refetchInterval: 30_000 },
+  });
+  const tokenMetadata = useMemo(
+    () =>
+      new Map(
+        tokenRegistry.data.map((token) => [
+          token.contractAddress.toLowerCase(),
+          token,
+        ]),
+      ),
+    [tokenRegistry.data],
+  );
+  const reservesByAsset = (reserves.data ?? []) as bigint[];
+  const loading =
+    factoryBaskets.isLoading ||
+    factoryBaskets.isFetching ||
+    basketReads.isLoading ||
+    basketReads.isFetching ||
+    (enabled && (composition.isLoading || reserves.isLoading));
+  const readError = getErrorText(
+    factoryBaskets.error ??
+      basketReads.error ??
+      totalSupply.error ??
+      composition.error ??
+      reserves.error ??
+      multiplierReads.error,
+  );
 
   return (
     <main className="relative min-h-screen overflow-hidden bg-[#080A0C] text-[#F1F1EA]">
@@ -43,346 +165,236 @@ export default function TerminalView() {
       <div className="relative z-10 mx-auto max-w-[1440px] px-4 py-5 sm:px-6 lg:px-8">
         <section className="reveal-on-scroll flex flex-col justify-between gap-4 border-b border-[#20252C] pb-5 sm:flex-row sm:items-end">
           <div>
-            <p className="mono-label mb-2 text-[#397BFF]">
-              [ MARKET TERMINAL ]
+            <p className="mono-label mb-2 text-[#397BFF]">[ FACTORY TERMINAL ]</p>
+            <h1 className="text-2xl font-bold tracking-[-0.04em] sm:text-3xl">
+              SKOCCC / {selectedBasket?.symbol ?? "BASKETS"}
+            </h1>
+            <p className="mt-2 font-mono text-[11px] text-[#7B828C]">
+              {selectedBasket?.name ?? "READING THE CONFIGURED FACTORY"} / {targetChain.name.toUpperCase()}
             </p>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              <h1 className="text-2xl font-bold tracking-[-0.04em] sm:text-3xl">
-                SKOCCC / TERMINAL / AIX
-              </h1>
-              <span className="font-mono text-xs text-[#7B828C]">
-                AI INFRASTRUCTURE
-              </span>
-            </div>
           </div>
-          <label className="flex min-w-[170px] items-center gap-2 border border-[#20252C] bg-[#101418] px-3 py-2 font-mono text-xs text-[#F1F1EA]">
-            <span className="sr-only">Select market</span>
-            <select
-              value={pair}
-              onChange={(event) => setPair(event.target.value)}
-              className="w-full appearance-none bg-transparent outline-none"
-            >
-              {["AIX / USD", "AIX / ETH", "AIX / BTC"].map((item) => (
-                <option key={item} className="bg-[#101418]" value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
-            <IconArrowRight size={14} />
-          </label>
+          {basketAddresses.length > 0 ? (
+            <label className="flex min-w-[220px] items-center gap-2 border border-[#20252C] bg-[#101418] px-3 py-2 font-mono text-xs text-[#F1F1EA]">
+              <span className="sr-only">Select basket</span>
+              <select
+                value={activeAddress ?? ""}
+                onChange={(event) => setSelectedAddress(event.target.value as Address)}
+                className="w-full appearance-none bg-transparent outline-none"
+              >
+                {basketAddresses.map((address, index) => (
+                  <option key={address} className="bg-[#101418]" value={address}>
+                    ${readResult(basketReads.data, index * 2 + 1, "BASKET")} / {formatAddress(address)}
+                  </option>
+                ))}
+              </select>
+              <IconArrowRight size={14} />
+            </label>
+          ) : null}
         </section>
 
-        <section
-          aria-label="AIX performance"
-          className="reveal-on-scroll reveal-delay-1 grid grid-cols-2 border-x border-b border-[#20252C] sm:grid-cols-4"
-        >
-          <MetricCard label="NAV" value="$128.42" />
-          <MetricCard label="24H" value="+2.84%" trend="up" />
-          <MetricCard label="TVL" value="$6.21M" />
-          <MetricCard label="BACKING" value="100%" subValue="VERIFIED" trend="up" />
-        </section>
-
-        <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,1.85fr)_minmax(340px,1fr)]">
-          <section className="min-w-0 space-y-5">
-            <article className="alive-ring reveal-on-scroll terminal-panel !p-0">
-              <header className="flex flex-col gap-3 border-b border-[#20252C] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <p className="mono-label text-[#F1F1EA]">
-                    [ AIX / NAV PERFORMANCE ]
-                  </p>
-                  <p className="mt-1 font-mono text-[11px] text-[#7B828C]">
-                    INTRADAY // ROBINHOOD_CHAIN // USD
-                  </p>
-                </div>
-                <div className="flex items-center gap-2 font-mono text-xs text-[#397BFF]">
-                  <IconActivity size={12} />
-                  <span>LIVE FEED</span>
-                </div>
-              </header>
-              <div className="p-5">
-                <div className="mb-4 flex items-end justify-between">
-                  <div>
-                    <p className="financial-value text-3xl font-bold">$128.42</p>
-                    <p className="mono-label mt-1 text-[#397BFF]">
-                      + $3.56 / +2.84%
-                    </p>
-                  </div>
-                  <p className="mono-label hidden sm:block">
-                    LAST UPDATE 16:00:04 UTC
-                  </p>
-                </div>
-                <div className="h-[260px] w-full min-w-0 border border-[#20252C] bg-[#0B0E12] p-4">
-                  <svg
-                    viewBox="0 0 100 100"
-                    preserveAspectRatio="none"
-                    className="h-full w-full"
-                    role="img"
-                    aria-label="AIX net asset value rising from 112 dollars to 128 dollars during the trading day"
-                  >
-                    <g stroke="#20252C" strokeWidth="0.25">
-                      {[10, 30, 50, 70, 90].map((y) => (
-                        <line key={`h-${y}`} x1="0" y1={y} x2="100" y2={y} />
-                      ))}
-                      {[20, 40, 60, 80].map((x) => (
-                        <line key={`v-${x}`} x1={x} y1="0" x2={x} y2="100" />
-                      ))}
-                    </g>
-                    <polyline
-                      points={chartPoints}
-                      fill="none"
-                      stroke="#397BFF"
-                      strokeWidth="0.8"
-                      vectorEffect="non-scaling-stroke"
-                    />
-                    <line
-                      x1="0"
-                      y1="7.9"
-                      x2="100"
-                      y2="7.9"
-                      stroke="#397BFF"
-                      strokeDasharray="1.5 1.5"
-                      strokeWidth="0.3"
-                    />
-                  </svg>
-                </div>
-                <div className="mt-3 flex justify-between px-1 font-mono text-[10px] text-[#7B828C]">
-                  {timeLabels.map((label) => (
-                    <span key={label}>{label}</span>
-                  ))}
-                </div>
-              </div>
-            </article>
-
-            <article className="alive-ring reveal-on-scroll reveal-delay-1 terminal-panel !p-0">
-              <header className="flex items-center justify-between border-b border-[#20252C] px-5 py-4">
-                <h2 className="mono-label text-[#F1F1EA]">[ VAULT RESERVES ]</h2>
-                <span className="font-mono text-[10px] text-[#397BFF]">
-                  CUSTODY RATIO 1:1
-                </span>
-              </header>
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[680px] border-collapse text-left">
-                  <thead>
-                    <tr className="border-b border-[#20252C] font-mono text-[10px] uppercase text-[#7B828C]">
-                      {["ASSET", "SHARES", "MARKET PRICE", "VALUE (USD)", "WEIGHT"].map(
-                        (heading) => (
-                          <th
-                            key={heading}
-                            className={`px-5 py-3 font-normal ${
-                              heading === "WEIGHT" ? "text-right" : ""
-                            }`}
-                          >
-                            {heading}
-                          </th>
-                        ),
-                      )}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {vaultReserves.map((asset) => (
-                      <tr
-                        key={asset.symbol}
-                        className="border-b border-[#20252C] last:border-0 hover:bg-[#151A20]"
-                      >
-                        <th scope="row" className="px-5 py-4 font-mono font-normal">
-                          <span className="block text-sm font-bold text-[#F1F1EA]">
-                            {asset.symbol}
-                          </span>
-                          <span className="mt-1 block text-[10px] text-[#7B828C]">
-                            {asset.name}
-                          </span>
-                        </th>
-                        <td className="px-5 py-4 font-mono text-xs">
-                          {asset.shares}
-                        </td>
-                        <td className="px-5 py-4 font-mono text-xs">
-                          {asset.price}
-                        </td>
-                        <td className="px-5 py-4 font-mono text-xs">
-                          {asset.value}
-                        </td>
-                        <td className="px-5 py-4 text-right font-mono text-xs text-[#397BFF]">
-                          {asset.weight}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <footer className="flex flex-wrap items-center gap-2 border-t border-[#20252C] px-5 py-3 font-mono text-[10px] text-[#7B828C]">
-                <IconBox size={13} className="text-[#397BFF]" />
-                <span>[ CUSTODY SMART CONTRACT ]</span>
-                <a
-                  href="#contract"
-                  className="ml-auto flex items-center gap-1 text-[#397BFF] hover:underline"
-                >
-                  0x7F...A91C <IconArrowRight size={11} />
-                </a>
-              </footer>
-            </article>
+        {!factoryAddress ? (
+          <section className="mt-5 border border-[#FF5555]/50 bg-[#101418] p-5">
+            <h2 className="font-mono text-sm font-bold">FACTORY CONFIGURATION REQUIRED</h2>
+            <p className="mt-2 font-mono text-xs text-[#7B828C]">
+              {getMissingFactoryMessage()}
+            </p>
           </section>
-
-          <aside className="alive-ring reveal-on-scroll reveal-delay-2 terminal-panel !p-0 lg:self-start">
-            <header className="border-b border-[#20252C] px-5 py-5">
-              <p className="mono-label text-[#397BFF]">[ ACTION PANEL ]</p>
-              <h2 className="mt-2 text-xl font-bold">AIX OPERATIONS</h2>
-              <p className="mt-2 font-mono text-[11px] leading-relaxed text-[#7B828C]">
-                EXECUTE AGAINST THE AIX INDEX BASKET.
-              </p>
-            </header>
-            <nav
-              aria-label="AIX operations"
-              className="grid grid-cols-4 border-b border-[#20252C]"
+        ) : readError ? (
+          <section className="mt-5 border border-[#FF5555]/50 bg-[#101418] p-5">
+            <h2 className="font-mono text-sm font-bold">ON-CHAIN DATA UNAVAILABLE</h2>
+            <p className="mt-2 font-mono text-xs text-[#7B828C]">{readError}</p>
+          </section>
+        ) : loading ? (
+          <section className="mt-5 border border-[#20252C] bg-[#101418] p-5 font-mono text-xs text-[#7B828C]">
+            LOADING FACTORY BASKETS AND VAULT STATE...
+          </section>
+        ) : basketAddresses.length === 0 ? (
+          <section className="mt-5 border border-[#20252C] bg-[#101418] p-5">
+            <IconBox size={18} className="text-[#397BFF]" />
+            <h2 className="mt-4 font-mono text-sm font-bold">NO FACTORY BASKETS YET</h2>
+            <Link
+              href="/create"
+              className="mt-5 inline-flex items-center gap-2 border border-[#397BFF] px-4 py-3 font-mono text-xs text-[#397BFF] hover:bg-[#397BFF] hover:text-[#080A0C]"
             >
-              {tabs.map((item) => (
-                <button
-                  key={item}
-                  type="button"
-                  onClick={() => setTab(item)}
-                  className={`border-r border-[#20252C] px-1 py-4 font-mono text-[10px] transition-colors last:border-r-0 ${
-                    tab === item
-                      ? "bg-[#397BFF] text-[#080A0C]"
-                      : "text-[#7B828C] hover:bg-[#151A20] hover:text-[#F1F1EA]"
-                  }`}
-                  aria-pressed={tab === item}
-                >
-                  {item}
-                </button>
-              ))}
-            </nav>
-            <div className="p-5">
-              {(tab === "MINT" || tab === "REDEEM") && (
-                <div className="space-y-5">
-                  <div>
-                    <label htmlFor="aix-amount" className="mono-label text-[#F1F1EA]">
-                      [ {tab === "MINT" ? "AIX AMOUNT" : "AIX BURN AMOUNT"} ]
-                    </label>
-                    <div className="mt-2 flex border border-[#20252C] bg-[#0B0E12] focus-within:border-[#397BFF]">
-                      <input
-                        id="aix-amount"
-                        value={amount}
-                        onChange={(event) =>
-                          setAmount(event.target.value.replace(/[^0-9.]/g, ""))
-                        }
-                        inputMode="decimal"
-                        className="min-w-0 flex-1 bg-transparent px-4 py-3 font-mono text-lg outline-none"
-                      />
-                      <span className="flex items-center border-l border-[#20252C] px-3 font-mono text-xs text-[#7B828C]">
-                        AIX
-                      </span>
+              CREATE BASKET <IconArrowRight size={14} />
+            </Link>
+          </section>
+        ) : selectedBasket ? (
+          <>
+            <section className="reveal-on-scroll reveal-delay-1 mt-5 grid grid-cols-2 border-x border-b border-[#20252C] sm:grid-cols-4">
+              <MetricCard
+                label="TOTAL SUPPLY"
+                value={formatTokenAmount(totalSupply.data)}
+              />
+              <MetricCard label="ASSETS" value={assets.length.toString()} />
+              <MetricCard
+                label="YOUR BALANCE"
+                value={connection.isConnected ? formatTokenAmount(walletBalance.data) : "--"}
+              />
+              <MetricCard
+                label="NETWORK"
+                value={targetChain.testnet ? "TESTNET" : "MAINNET"}
+                subValue={targetChain.id.toString()}
+                trend="neutral"
+              />
+            </section>
+
+            <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,1.85fr)_minmax(340px,1fr)]">
+              <section className="min-w-0 space-y-5">
+                <article className="alive-ring terminal-panel !p-0">
+                  <header className="flex items-center justify-between border-b border-[#20252C] px-5 py-4">
+                    <div>
+                      <p className="mono-label text-[#F1F1EA]">[ VAULT COMPOSITION ]</p>
+                      <p className="mt-1 font-mono text-[11px] text-[#7B828C]">
+                        RAW RESERVES / MULTIPLIER-ADJUSTED EXPOSURE
+                      </p>
                     </div>
-                    <div className="mt-2 flex justify-between font-mono text-[10px] text-[#7B828C]">
-                      <span>WALLET BALANCE</span>
-                      <a href="/portfolio" className="text-[#397BFF] hover:text-[#F1F1EA]">
-                        VIEW IN PORTFOLIO
-                      </a>
-                    </div>
-                  </div>
-                  <div className="border-y border-[#20252C] py-4">
-                    <p className="mono-label mb-3 text-[#F1F1EA]">
-                      [ {tab === "MINT" ? "YOU PROVIDE" : "YOU RECEIVE"} ]
-                    </p>
-                    <div className="space-y-3">
-                      {vaultReserves.map((asset, index) => (
-                        <div
-                          key={asset.symbol}
-                          className="flex items-center justify-between font-mono text-xs"
-                        >
-                          <span className="text-[#7B828C]">
-                            {numericAmount === 0
-                              ? "0.000"
-                              : (numericAmount * [0.222, 0.096, 0.058][index]).toFixed(3)}{" "}
-                            {asset.symbol}
-                          </span>
-                          <span className="text-[#F1F1EA]">
-                            {tab === "MINT" ? "REQUIRED" : "RECEIVED"}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between font-mono text-xs">
-                    <span className="text-[#7B828C]">EST. VALUE</span>
-                    <span>{estimatedValue}</span>
-                  </div>
-                  <button
-                    type="button"
-                    className="flex w-full items-center justify-center gap-2 bg-[#397BFF] px-4 py-3 font-mono text-xs font-bold text-[#080A0C] transition-colors hover:bg-[#6B99FF] focus:outline-none focus:ring-2 focus:ring-[#397BFF]"
-                  >
-                    <IconWallet size={15} />
-                    <span>{tab === "MINT" ? "MINT AIX" : "BURN & REDEEM"}</span>
-                  </button>
-                </div>
-              )}
-              {tab === "OVERVIEW" && (
-                <div className="space-y-5">
-                  <div className="flex items-start gap-3 border border-[#20252C] bg-[#0B0E12] p-4">
-                    <IconActivity
-                      size={16}
-                      className="mt-0.5 shrink-0 text-[#397BFF]"
+                    <IconActivity size={15} className="text-[#397BFF]" />
+                  </header>
+                  <div className="p-5">
+                    <CompositionBar
+                      assets={assets.map((asset, index) => ({
+                        symbol:
+                          tokenMetadata.get(asset.toLowerCase())?.symbol ??
+                          formatAddress(asset),
+                        weight: (weights[index] ?? 0) / 100,
+                      }))}
+                      showLegend
                     />
-                    <p className="font-mono text-xs leading-relaxed text-[#7B828C]">
-                      AIX tracks a basket of leading AI infrastructure equities.
-                      Each token is backed 1:1 by the assets held in the custody
-                      vault.
-                    </p>
                   </div>
-                  <dl className="space-y-4 font-mono text-xs">
-                    {[
-                      ["TOTAL SUPPLY", "48,392.00 AIX"],
-                      ["REBALANCE", "QUARTERLY"],
-                      ["FEE", "0.25%"],
-                    ].map(([label, value]) => (
-                      <div key={label} className="flex justify-between">
-                        <dt className="text-[#7B828C]">{label}</dt>
-                        <dd>{value}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                  <button
-                    type="button"
-                    onClick={() => setTab("MINT")}
-                    className="flex w-full items-center justify-center gap-2 border border-[#397BFF] px-4 py-3 font-mono text-xs text-[#397BFF] hover:bg-[#397BFF]/10"
-                  >
-                    <IconWallet size={14} />
-                    <span>START AN OPERATION</span>
-                  </button>
-                </div>
-              )}
-              {tab === "TRANSFER" && (
-                <div className="space-y-5">
-                  <div className="border border-[#20252C] bg-[#0B0E12] p-4">
-                    <p className="mono-label text-[#F1F1EA]">
-                      [ PEER TRANSFER ]
-                    </p>
-                    <p className="mt-3 font-mono text-xs leading-relaxed text-[#7B828C]">
-                      Move AIX directly to a verified wallet address. Transfers
-                      do not alter the underlying vault composition.
-                    </p>
+                  <div className="divide-y divide-[#20252C] border-t border-[#20252C] md:hidden">
+                    {assets.map((asset, index) => {
+                      const token = tokenMetadata.get(asset.toLowerCase());
+                      const multiplier =
+                        multiplierReads.data?.[index]?.result ?? MULTIPLIER_SCALE;
+                      const reserve = reservesByAsset[index] ?? ZERO;
+
+                      return (
+                        <article key={asset} className="p-4">
+                          <div className="flex justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="financial-value text-sm">
+                                {token?.symbol ?? formatAddress(asset)}
+                              </p>
+                              <p className="mono-label mt-1 break-all text-[9px] text-[#7B828C]">
+                                {token?.name ?? asset}
+                              </p>
+                            </div>
+                            <span className="financial-value text-xs text-[#397BFF]">
+                              {((weights[index] ?? 0) / 100).toFixed(2)}%
+                            </span>
+                          </div>
+                          <div className="mt-4 grid grid-cols-2 gap-4 border-t border-[#20252C] pt-3">
+                            <div>
+                              <p className="mono-label text-[9px]">RAW RESERVE</p>
+                              <p className="financial-value mt-1 text-xs">{formatTokenAmount(reserve)}</p>
+                            </div>
+                            <div>
+                              <p className="mono-label text-[9px]">UI EXPOSURE</p>
+                              <p className="financial-value mt-1 text-xs text-[#397BFF]">
+                                {formatTokenAmount((reserve * multiplier) / MULTIPLIER_SCALE)}
+                              </p>
+                            </div>
+                          </div>
+                        </article>
+                      );
+                    })}
                   </div>
-                  <label htmlFor="recipient" className="mono-label text-[#F1F1EA]">
-                    [ RECIPIENT ADDRESS ]
-                  </label>
-                  <input
-                    id="recipient"
-                    placeholder="0x..."
-                    className="w-full border border-[#20252C] bg-[#0B0E12] px-4 py-3 font-mono text-xs outline-none placeholder:text-[#7B828C] focus:border-[#397BFF]"
-                  />
-                  <button
-                    type="button"
-                    className="flex w-full items-center justify-center gap-2 border border-[#397BFF] px-4 py-3 font-mono text-xs text-[#397BFF] hover:bg-[#397BFF]/10"
+                  <div className="hidden overflow-x-auto border-t border-[#20252C] md:block">
+                    <table className="w-full min-w-[700px] border-collapse text-left">
+                      <thead>
+                        <tr className="border-b border-[#20252C] font-mono text-[10px] uppercase text-[#7B828C]">
+                          {["ASSET", "WEIGHT", "RAW RESERVE", "UI EXPOSURE", "PRICE"].map((heading) => (
+                            <th key={heading} className="px-5 py-3 font-normal">{heading}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {assets.map((asset, index) => {
+                          const token = tokenMetadata.get(asset.toLowerCase());
+                          const multiplier =
+                            multiplierReads.data?.[index]?.result ?? MULTIPLIER_SCALE;
+                          const reserve = reservesByAsset[index] ?? ZERO;
+
+                          return (
+                            <tr key={asset} className="border-b border-[#20252C] last:border-0 hover:bg-[#151A20]">
+                              <th scope="row" className="px-5 py-4 font-mono font-normal">
+                                <span className="block text-sm font-bold text-[#F1F1EA]">
+                                  {token?.symbol ?? formatAddress(asset)}
+                                </span>
+                                <span className="mt-1 block text-[10px] text-[#7B828C]">
+                                  {token?.name ?? asset}
+                                </span>
+                              </th>
+                              <td className="px-5 py-4 font-mono text-xs">{((weights[index] ?? 0) / 100).toFixed(2)}%</td>
+                              <td className="px-5 py-4 font-mono text-xs">{formatTokenAmount(reserve)}</td>
+                              <td className="px-5 py-4 font-mono text-xs text-[#397BFF]">
+                                {formatTokenAmount((reserve * multiplier) / MULTIPLIER_SCALE)}
+                              </td>
+                              <td className="px-5 py-4 font-mono text-xs">
+                                {token?.priceUsd === null || token?.priceUsd === undefined
+                                  ? "N/A"
+                                  : `$${token.priceUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })}`}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  <footer className="flex flex-wrap items-center gap-2 border-t border-[#20252C] px-5 py-3 font-mono text-[10px] text-[#7B828C]">
+                    <IconBox size={13} className="text-[#397BFF]" />
+                    <span>[ VAULT CONTRACT ]</span>
+                    <span className="ml-auto break-all text-[#397BFF]">{selectedBasket.address}</span>
+                  </footer>
+                </article>
+              </section>
+
+              <aside className="alive-ring terminal-panel !p-0 lg:self-start">
+                <header className="border-b border-[#20252C] px-5 py-5">
+                  <p className="mono-label text-[#397BFF]">[ BASKET OPERATIONS ]</p>
+                  <h2 className="mt-2 text-xl font-bold">${selectedBasket.symbol}</h2>
+                  <p className="mt-2 font-mono text-[11px] leading-relaxed text-[#7B828C]">
+                    Mint, redeem, and transfer this exact factory-created basket.
+                  </p>
+                </header>
+                <div className="space-y-5 p-5">
+                  {!connection.isConnected ? (
+                    <div className="border border-[#20252C] bg-[#0B0E12] p-4">
+                      <IconWallet size={16} className="text-[#397BFF]" />
+                      <p className="mt-3 font-mono text-xs text-[#7B828C]">
+                        CONNECT YOUR WALLET TO VIEW YOUR BALANCE AND OPERATE THIS BASKET.
+                      </p>
+                      <div className="mt-4"><WalletControl /></div>
+                    </div>
+                  ) : (
+                    <div className="border border-[#20252C] bg-[#0B0E12] p-4">
+                      <p className="mono-label">YOUR BASKET BALANCE</p>
+                      <p className="financial-value mt-2 text-2xl">
+                        {formatTokenAmount(walletBalance.data)} {selectedBasket.symbol}
+                      </p>
+                    </div>
+                  )}
+                  <Link
+                    href={`/basket/${selectedBasket.address}`}
+                    className="flex w-full items-center justify-center gap-2 bg-[#397BFF] px-4 py-3 font-mono text-xs font-bold text-[#080A0C] transition-colors hover:bg-[#6B99FF]"
                   >
-                    <IconArrowRight size={14} />
-                    <span>TRANSFER AIX</span>
-                  </button>
+                    OPEN MINT / REDEEM / TRANSFER <IconArrowRight size={15} />
+                  </Link>
+                  <Link
+                    href="/portfolio"
+                    className="flex w-full items-center justify-center gap-2 border border-[#397BFF] px-4 py-3 font-mono text-xs text-[#397BFF] transition-colors hover:bg-[#397BFF]/10"
+                  >
+                    VIEW ON-CHAIN PORTFOLIO <IconWallet size={14} />
+                  </Link>
                 </div>
-              )}
+                <footer className="border-t border-[#20252C] px-5 py-4 font-mono text-[10px] text-[#7B828C]">
+                  [ DATA READ FROM THE CONFIGURED ROBINHOOD CHAIN FACTORY ]
+                </footer>
+              </aside>
             </div>
-            <footer className="border-t border-[#20252C] px-5 py-4 font-mono text-[10px] text-[#7B828C]">
-              [ ALL ACTIONS REQUIRE WALLET SIGNATURE ]
-            </footer>
-          </aside>
-        </div>
+          </>
+        ) : null}
       </div>
     </main>
   );

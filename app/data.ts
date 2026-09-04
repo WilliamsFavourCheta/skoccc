@@ -136,33 +136,6 @@ export const markets: Market[] = [
   },
 ];
 
-export const vaultReserves = [
-  {
-    symbol: "NVDA",
-    name: "NVIDIA CORP.",
-    shares: "4,892.12",
-    price: "$184.27",
-    value: "$901,652.95",
-    weight: "38.24%",
-  },
-  {
-    symbol: "MSFT",
-    name: "MICROSOFT CORP.",
-    shares: "2,104.88",
-    price: "$507.62",
-    value: "$1,068,211.95",
-    weight: "45.31%",
-  },
-  {
-    symbol: "GOOGL",
-    name: "ALPHABET INC. CL A",
-    shares: "1,276.40",
-    price: "$318.67",
-    value: "$406,739.23",
-    weight: "16.45%",
-  },
-];
-
 export const availableAssets = [
   { symbol: "NVDA", name: "NVIDIA CORP.", tone: "#397BFF" },
   { symbol: "MSFT", name: "MICROSOFT CORP.", tone: "#6A98FF" },
