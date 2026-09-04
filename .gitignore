@@ -12,6 +12,9 @@
 
 # testing
 /coverage
+/artifacts
+/cache
+/typechain-types
 
 # next.js
 /.next/
@@ -30,8 +33,19 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files
+.env
+.env.local
+.env.*.local
 .env*
+!.env.example
+
+# private keys and local secret stores
+*.key
+*.p8
+*.keystore
+*.jks
+secrets/
 
 # vercel
 .vercel
