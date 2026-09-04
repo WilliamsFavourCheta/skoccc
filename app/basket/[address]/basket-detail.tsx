@@ -442,6 +442,13 @@ export function BasketDetail({ address }: { address: string }) {
           />
         </section>
 
+        <a
+          href="#basket-actions"
+          className="mt-4 flex items-center justify-between border border-[#397BFF] px-4 py-3 font-mono text-xs font-bold text-[#397BFF] md:hidden"
+        >
+          MINT THIS BASKET <IconArrowRight size={15} />
+        </a>
+
         {readErrorText ? (
           <p className="mono-label mt-6 border border-red-500/50 bg-[#101418] p-4 text-red-300">
             {readErrorText}
@@ -466,7 +473,58 @@ export function BasketDetail({ address }: { address: string }) {
                 showLegend
               />
             </div>
-            <div className="overflow-x-auto border-t border-[#20252C]">
+            <div className="divide-y divide-[#20252C] border-t border-[#20252C] md:hidden">
+              {assets.map((asset, index) => {
+                const metadata = tokenMetadata.get(asset.toLowerCase());
+
+                return (
+                  <article key={asset} className="p-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0">
+                        <p className="financial-value text-sm text-[#F1F1EA]">
+                          {metadata?.symbol ?? formatAddress(asset)}
+                        </p>
+                        <p className="mono-label mt-1 break-all text-[9px] text-[#7B828C]">
+                          {metadata?.name ?? asset}
+                        </p>
+                      </div>
+                      <p className="financial-value shrink-0 text-xs text-[#397BFF]">
+                        {(weights[index] / 100).toFixed(2)}%
+                      </p>
+                    </div>
+                    <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-[#20252C] pt-3">
+                      <div>
+                        <p className="mono-label text-[9px]">MINT REQUIREMENT</p>
+                        <p className="financial-value mt-1 text-xs">
+                          {formatTokenAmount(requirements[index])}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="mono-label text-[9px]">YOUR WALLET</p>
+                        <p className="financial-value mt-1 text-xs">
+                          {formatTokenAmount(balances[index])}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="mono-label text-[9px]">VAULT RESERVE</p>
+                        <p className="financial-value mt-1 text-xs">
+                          {formatTokenAmount(reserveValues[index])}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="mono-label text-[9px]">UI EXPOSURE</p>
+                        <p className="financial-value mt-1 text-xs text-[#397BFF]">
+                          {formatTokenAmount(
+                            toUiAmount(reserveValues[index], multipliers[index]),
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+            <div className="hidden overflow-x-auto border-t border-[#20252C] md:block">
               <table className="w-full min-w-[860px] border-collapse text-left">
                 <thead>
                   <tr className="border-b border-[#20252C] font-mono text-[10px] uppercase text-[#7B828C]">
@@ -528,7 +586,10 @@ export function BasketDetail({ address }: { address: string }) {
             </div>
           </article>
 
-          <aside className="alive-ring reveal-on-scroll reveal-delay-1 terminal-panel !p-0 lg:self-start">
+          <aside
+            id="basket-actions"
+            className="alive-ring reveal-on-scroll reveal-delay-1 terminal-panel !p-0 lg:self-start"
+          >
             <header className="border-b border-[#20252C] px-5 py-5">
               <p className="mono-label text-[#397BFF]">[ ACTION PANEL ]</p>
               <h2 className="mt-2 text-xl font-bold">
