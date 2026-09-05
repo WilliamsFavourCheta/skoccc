@@ -471,7 +471,6 @@ export default function CreateBasket() {
         tone: "#2D58A8",
       },
     ]);
-    setQuery("");
     showToast(`${asset.symbol} added to basket.`, "success");
   }
 
@@ -929,7 +928,7 @@ export default function CreateBasket() {
             className="relative z-10 grid gap-10 lg:grid-cols-[1fr_340px]"
             aria-labelledby="composition-heading"
           >
-            <div className="min-w-0 pb-24 lg:pb-0">
+            <div className="min-w-0">
               <div className="mb-7 flex items-end justify-between gap-4">
                 <div>
                   <h2 id="composition-heading" className="mb-2 text-xl font-bold">
@@ -1023,6 +1022,18 @@ export default function CreateBasket() {
                   MAX {MAX_BASKET_ASSETS} ASSETS SELECTED FOR V1.
                 </p>
               ) : null}
+              <div className="alive-ring mt-6 border border-[#20252C] bg-[#101418] p-4 lg:hidden">
+                <BasketAllocationPanel
+                  assets={composition}
+                  onAdjustWeight={adjustWeight}
+                  onClear={clearComposition}
+                  onEqualWeight={applyEqualWeight}
+                  onRemove={removeAsset}
+                  onWeightChange={updateWeight}
+                  totalWeight={totalWeight}
+                  validWeight={validWeight}
+                />
+              </div>
             </div>
             <aside className="alive-ring z-10 hidden h-fit border border-[#20252C] bg-[#101418] p-6 lg:sticky lg:top-24 lg:block">
               <BasketAllocationPanel
@@ -1036,26 +1047,6 @@ export default function CreateBasket() {
                 validWeight={validWeight}
               />
             </aside>
-            <details className="group fixed inset-x-4 bottom-20 z-50 lg:hidden">
-              <summary className="flex cursor-pointer list-none items-center justify-between border border-[#397BFF] bg-[#101418] px-4 py-3 font-mono text-xs font-bold text-[#F1F1EA] shadow-2xl shadow-black/50 [&::-webkit-details-marker]:hidden">
-                <span>SELECTED ASSETS ({composition.length})</span>
-                <span className={validWeight ? "text-[#397BFF]" : "text-[#7B828C]"}>
-                  {totalWeight.toFixed(2)}%
-                </span>
-              </summary>
-              <div className="absolute bottom-full mb-2 max-h-[55vh] w-full overflow-y-auto border border-[#20252C] bg-[#101418] p-4 shadow-2xl shadow-black/50">
-                <BasketAllocationPanel
-                  assets={composition}
-                  onAdjustWeight={adjustWeight}
-                  onClear={clearComposition}
-                  onEqualWeight={applyEqualWeight}
-                  onRemove={removeAsset}
-                  onWeightChange={updateWeight}
-                  totalWeight={totalWeight}
-                  validWeight={validWeight}
-                />
-              </div>
-            </details>
           </section>
         ) : null}
 
