@@ -211,15 +211,14 @@ export function Footer() {
             <h4 className="mono-label text-xs font-bold text-[#F1F1EA]">
               [ COMMUNITY ]
             </h4>
-            {["X / TWITTER", "DISCORD", "GITHUB", "MEDIUM"].map((item) => (
-              <a
-                key={item}
-                href="#"
-                className="mono-label text-[10px] transition-colors hover:text-[#397BFF]"
-              >
-                {item}
-              </a>
-            ))}
+            <a
+              href="https://x.com/skocccmarket?s=11"
+              target="_blank"
+              rel="noreferrer"
+              className="mono-label text-[10px] transition-colors hover:text-[#397BFF]"
+            >
+              X / @SKOCCCMARKET
+            </a>
           </div>
         </div>
         <div className="flex flex-col items-start justify-between gap-4 border-t border-[#20252C] pt-8 md:flex-row md:items-center">
