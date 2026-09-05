@@ -46,7 +46,7 @@ export function getTargetChain(): SupportedChain {
     process.env.NEXT_PUBLIC_SKOCCC_TARGET_CHAIN_ID,
   );
 
-  return getSupportedChain(configuredChainId) ?? robinhoodTestnet;
+  return getSupportedChain(configuredChainId) ?? robinhood;
 }
 
 export const targetChain = getTargetChain();
