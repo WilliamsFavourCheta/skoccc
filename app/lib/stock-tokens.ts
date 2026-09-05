@@ -61,6 +61,21 @@ type GetOfficialStockTokensOptions = {
   includePrices?: boolean;
 };
 
+class RobinhoodApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "RobinhoodApiError";
+  }
+}
+
+const PRICE_REQUEST_CONCURRENCY = 3;
+const PRICE_REQUEST_RETRIES = 3;
+const PRICE_REQUEST_RETRY_DELAY_MS = 300;
+const PRICE_REQUEST_BATCH_DELAY_MS = 200;
+
 type TestnetMockStockToken = {
   id?: unknown;
   symbol?: unknown;
@@ -189,7 +204,10 @@ async function fetchJson<T>(path: string, revalidate: number): Promise<T> {
   });
 
   if (!response.ok) {
-    throw new Error(`Robinhood Stock Token API failed: ${response.status}`);
+    throw new RobinhoodApiError(
+      `Robinhood Stock Token API failed: ${response.status}`,
+      response.status,
+    );
   }
 
   return response.json() as Promise<T>;
@@ -199,32 +217,68 @@ async function mapWithConcurrency<T, U>(
   items: T[],
   limit: number,
   mapper: (item: T) => Promise<U>,
+  delayBetweenBatchesMs = 0,
 ) {
   const results: U[] = [];
 
   for (let index = 0; index < items.length; index += limit) {
     const chunk = items.slice(index, index + limit);
     results.push(...(await Promise.all(chunk.map(mapper))));
+
+    if (delayBetweenBatchesMs > 0 && index + limit < items.length) {
+      await new Promise((resolve) => setTimeout(resolve, delayBetweenBatchesMs));
+    }
   }
 
   return results;
 }
 
-async function fetchTokenPrice(symbol: string) {
-  try {
-    const data = await fetchJson<RobinhoodPriceResponse>(
-      `/prices/${encodeURIComponent(symbol)}`,
-      15,
-    );
-    const quote = data.quotes?.find((item) => item.tokenSymbol === symbol);
-    const bid = Number(quote?.bid);
-    const ask = Number(quote?.ask);
+function isRetryablePriceError(error: unknown) {
+  if (error instanceof RobinhoodApiError) {
+    return error.status === 429 || error.status >= 500;
+  }
 
-    if (Number.isFinite(bid) && Number.isFinite(ask)) return (bid + ask) / 2;
-    if (Number.isFinite(ask)) return ask;
-    if (Number.isFinite(bid)) return bid;
-  } catch {
-    return null;
+  return error instanceof TypeError ||
+    (error instanceof DOMException && error.name === "TimeoutError");
+}
+
+function parsePrice(value: unknown) {
+  if (typeof value !== "string" || value.trim().length === 0) return null;
+
+  const price = Number(value);
+
+  return Number.isFinite(price) && price > 0 ? price : null;
+}
+
+async function fetchTokenPrice(symbol: string) {
+  const normalizedSymbol = symbol.trim().toUpperCase();
+
+  for (let attempt = 0; attempt < PRICE_REQUEST_RETRIES; attempt += 1) {
+    try {
+      const data = await fetchJson<RobinhoodPriceResponse>(
+        `/prices/${encodeURIComponent(normalizedSymbol)}`,
+        15,
+      );
+      const quote = data.quotes?.find(
+        (item) => item.tokenSymbol?.trim().toUpperCase() === normalizedSymbol,
+      );
+      const bid = parsePrice(quote?.bid);
+      const ask = parsePrice(quote?.ask);
+
+      if (bid !== null && ask !== null) return (bid + ask) / 2;
+      if (ask !== null) return ask;
+      if (bid !== null) return bid;
+
+      return null;
+    } catch (error) {
+      const hasRetryRemaining = attempt < PRICE_REQUEST_RETRIES - 1;
+
+      if (!hasRetryRemaining || !isRetryablePriceError(error)) return null;
+
+      await new Promise((resolve) =>
+        setTimeout(resolve, PRICE_REQUEST_RETRY_DELAY_MS * 2 ** attempt),
+      );
+    }
   }
 
   return null;
@@ -259,9 +313,10 @@ export async function getOfficialStockTokens(
 
   const prices = options.includePrices
     ? await mapWithConcurrency(
-        deployedAssets,
-        8,
+      deployedAssets,
+        PRICE_REQUEST_CONCURRENCY,
         ({ asset }) => fetchTokenPrice(asset.tokenSymbol),
+        PRICE_REQUEST_BATCH_DELAY_MS,
       )
     : deployedAssets.map(() => null);
 

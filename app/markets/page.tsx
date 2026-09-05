@@ -21,7 +21,7 @@ const validatedSymbols = ["AAPL", "NVDA", "MSFT", "GOOGL"] as const;
 const validatedSymbolSet = new Set<string>(validatedSymbols);
 
 function formatUsd(value: number | null) {
-  if (value === null) return "UNAVAILABLE";
+  if (value === null) return "PRICE UNAVAILABLE";
 
   return value.toLocaleString("en-US", {
     style: "currency",

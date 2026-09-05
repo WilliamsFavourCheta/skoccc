@@ -636,7 +636,7 @@ export default function CreateBasket() {
 
         {step === 0 ? (
           <section
-            className="reveal-on-scroll relative z-10 grid gap-10 lg:grid-cols-[1.35fr_0.65fr]"
+            className="relative z-10 grid gap-10 lg:grid-cols-[1.35fr_0.65fr]"
             aria-labelledby="identity-heading"
           >
             <div>
@@ -689,7 +689,7 @@ export default function CreateBasket() {
                 />
               </div>
             </div>
-            <aside className="alive-ring reveal-on-scroll reveal-delay-1 border border-[#20252C] bg-[#101418] p-6">
+            <aside className="alive-ring border border-[#20252C] bg-[#101418] p-6">
               <p className="mono-label mb-10 text-[#397BFF]">SYSTEM_PARAMETERS</p>
               <div className="space-y-5">
                 {[
@@ -714,7 +714,7 @@ export default function CreateBasket() {
 
         {step === 1 ? (
           <section
-            className="reveal-on-scroll relative z-10 grid gap-10 lg:grid-cols-[1fr_340px]"
+            className="relative z-10 grid gap-10 lg:grid-cols-[1fr_340px]"
             aria-labelledby="composition-heading"
           >
             <div>
@@ -857,7 +857,7 @@ export default function CreateBasket() {
                 ))}
               </div>
             </div>
-            <aside className="alive-ring reveal-on-scroll reveal-delay-1 z-10 h-fit border border-[#20252C] bg-[#101418] p-6 lg:sticky lg:top-24">
+            <aside className="alive-ring z-10 h-fit border border-[#20252C] bg-[#101418] p-6 lg:sticky lg:top-24">
               <p className="mono-label mb-4">WEIGHT MANAGEMENT</p>
               <p
                 className={`financial-value mb-2 text-4xl font-bold ${
@@ -888,7 +888,7 @@ export default function CreateBasket() {
 
         {step >= 2 ? (
           <section
-            className="reveal-on-scroll relative z-10 grid gap-10 lg:grid-cols-[1fr_380px]"
+            className="relative z-10 grid gap-10 lg:grid-cols-[1fr_380px]"
             aria-labelledby="review-heading"
           >
             <div>
@@ -943,7 +943,7 @@ export default function CreateBasket() {
                 </div>
               </article>
             </div>
-            <aside className="alive-ring reveal-on-scroll reveal-delay-1 h-fit border border-[#397BFF] bg-[#101418] p-6">
+            <aside className="alive-ring h-fit border border-[#397BFF] bg-[#101418] p-6">
               <p className="mono-label mb-4 text-[#397BFF]">DEPLOYMENT GATE</p>
               <h3 className="mb-3 text-xl font-bold">Ready for chain.</h3>
               <p className="mono-label mb-8 leading-relaxed">
