@@ -970,17 +970,17 @@ export default function CreateBasket() {
                 </p>
               ) : null}
               {showTokenOptions ? (
-                <div className="mb-6 max-h-[calc(100vh-22rem)] min-h-48 overflow-y-auto border border-[#20252C] bg-[#101418] lg:max-h-[calc(100vh-18rem)]">
+                <div className="mb-6 max-h-[calc(100vh-22rem)] min-h-48 w-full overflow-x-hidden overflow-y-auto overscroll-contain touch-pan-y border border-[#20252C] bg-[#101418] lg:max-h-[calc(100vh-18rem)]">
                   {visibleTokenOptions.map((asset) => (
                     <article
                       key={asset.contractAddress}
-                      className="flex items-center justify-between gap-4 border-b border-[#20252C] px-4 py-3 last:border-0 hover:bg-[#1A1F26]"
+                      className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-[#20252C] px-3 py-3 last:border-0 hover:bg-[#1A1F26] sm:gap-4 sm:px-4"
                     >
-                      <div className="min-w-0">
-                        <strong className="financial-value text-sm text-[#F1F1EA]">
+                      <div className="min-w-0 sm:flex sm:items-baseline sm:gap-3">
+                        <strong className="financial-value block shrink-0 text-sm text-[#F1F1EA]">
                           {asset.symbol}
                         </strong>
-                        <span className="mono-label ml-3 truncate text-[10px] text-[#7B828C]">
+                        <span className="mono-label mt-1 block truncate text-[10px] text-[#7B828C] sm:mt-0 sm:min-w-0 sm:flex-1">
                           {asset.name}
                         </span>
                       </div>
