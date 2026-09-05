@@ -110,6 +110,176 @@ function StepRail({ activeStep }: { activeStep: number }) {
   );
 }
 
+function SelectedAssetEditor({
+  assets,
+  onAdjustWeight,
+  onRemove,
+  onWeightChange,
+}: {
+  assets: BasketAsset[];
+  onAdjustWeight: (symbol: string, delta: number) => void;
+  onRemove: (symbol: string) => void;
+  onWeightChange: (symbol: string, value: string) => void;
+}) {
+  if (assets.length === 0) {
+    return (
+      <p className="mono-label border-t border-[#20252C] py-5 text-[10px] leading-relaxed text-[#7B828C]">
+        ADD STOCK TOKENS FROM THE MARKET LIST TO BUILD YOUR BASKET.
+      </p>
+    );
+  }
+
+  return (
+    <div className="divide-y divide-[#20252C] border-t border-[#20252C]">
+      {assets.map((asset) => (
+        <article key={asset.tokenAddress} className="py-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span
+                  className="h-2 w-2 shrink-0"
+                  style={{ backgroundColor: asset.tone }}
+                />
+                <p className="financial-value text-sm font-bold text-[#F1F1EA]">
+                  {asset.symbol}
+                </p>
+              </div>
+              <p className="mono-label mt-1 truncate text-[9px] text-[#7B828C]">
+                {asset.name}
+              </p>
+            </div>
+            <button
+              type="button"
+              aria-label={`Remove ${asset.symbol}`}
+              onClick={() => onRemove(asset.symbol)}
+              className="border border-[#20252C] px-2 py-1 font-mono text-[10px] text-[#7B828C] transition-colors hover:border-red-400 hover:text-red-400"
+            >
+              REMOVE
+            </button>
+          </div>
+          <div className="mt-3 grid grid-cols-[32px_minmax(0,1fr)_32px] items-center border border-[#20252C] bg-[#080A0C]">
+            <button
+              type="button"
+              aria-label={`Decrease ${asset.symbol} weight`}
+              onClick={() => onAdjustWeight(asset.symbol, -1)}
+              className="h-9 border-r border-[#20252C] font-mono text-base text-[#7B828C] transition-colors hover:bg-[#101418] hover:text-[#397BFF]"
+            >
+              -
+            </button>
+            <label className="flex min-w-0 items-center px-2">
+              <span className="sr-only">Weight for {asset.symbol}</span>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                step="0.01"
+                value={asset.weight}
+                onChange={(event) => onWeightChange(asset.symbol, event.target.value)}
+                className="financial-value min-w-0 flex-1 bg-transparent py-2 text-right text-sm outline-none"
+              />
+              <span className="financial-value ml-1 text-xs text-[#7B828C]">%</span>
+            </label>
+            <button
+              type="button"
+              aria-label={`Increase ${asset.symbol} weight`}
+              onClick={() => onAdjustWeight(asset.symbol, 1)}
+              className="h-9 border-l border-[#20252C] font-mono text-base text-[#7B828C] transition-colors hover:bg-[#101418] hover:text-[#397BFF]"
+            >
+              +
+            </button>
+          </div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function BasketAllocationPanel({
+  assets,
+  onAdjustWeight,
+  onClear,
+  onEqualWeight,
+  onRemove,
+  onWeightChange,
+  totalWeight,
+  validWeight,
+}: {
+  assets: BasketAsset[];
+  onAdjustWeight: (symbol: string, delta: number) => void;
+  onClear: () => void;
+  onEqualWeight: () => void;
+  onRemove: (symbol: string) => void;
+  onWeightChange: (symbol: string, value: string) => void;
+  totalWeight: number;
+  validWeight: boolean;
+}) {
+  return (
+    <>
+      <div className="flex items-start justify-between gap-4 border-b border-[#20252C] pb-5">
+        <div>
+          <p className="mono-label text-[#397BFF]">YOUR BASKET</p>
+          <p className="financial-value mt-2 text-lg text-[#F1F1EA]">
+            {assets.length.toString().padStart(2, "0")} / {MAX_BASKET_ASSETS} ASSETS
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            disabled={assets.length === 0}
+            onClick={onEqualWeight}
+            className="border border-[#397BFF] px-2 py-1 font-mono text-[9px] text-[#397BFF] transition-colors hover:bg-[#397BFF] hover:text-[#080A0C] disabled:cursor-not-allowed disabled:border-[#20252C] disabled:text-[#56606D]"
+          >
+            EQUAL WEIGHT
+          </button>
+          <button
+            type="button"
+            disabled={assets.length === 0}
+            onClick={onClear}
+            className="border border-[#20252C] px-2 py-1 font-mono text-[9px] text-[#7B828C] transition-colors hover:border-red-400 hover:text-red-400 disabled:cursor-not-allowed disabled:text-[#56606D]"
+          >
+            CLEAR ALL
+          </button>
+        </div>
+      </div>
+      <div className="py-5">
+        <div className="flex items-end justify-between gap-4">
+          <div>
+            <p className="mono-label text-[9px]">TOTAL ALLOCATION</p>
+            <p
+              className={`financial-value mt-2 text-4xl font-bold ${
+                validWeight ? "text-[#397BFF]" : "text-[#F1F1EA]"
+              }`}
+            >
+              {totalWeight.toFixed(2)}%
+            </p>
+          </div>
+          <p
+            className={`mono-label text-right text-[9px] ${
+              validWeight ? "text-[#397BFF]" : "text-[#7B828C]"
+            }`}
+          >
+            {validWeight ? "READY TO REVIEW" : "TARGET 100.00%"}
+          </p>
+        </div>
+        <div className="mt-4 h-1 bg-[#20252C]">
+          <div
+            className={`h-full transition-all ${
+              validWeight ? "bg-[#397BFF]" : "bg-[#7B828C]"
+            }`}
+            style={{ width: `${Math.min(totalWeight, 100)}%` }}
+          />
+        </div>
+      </div>
+      <SelectedAssetEditor
+        assets={assets}
+        onAdjustWeight={onAdjustWeight}
+        onRemove={onRemove}
+        onWeightChange={onWeightChange}
+      />
+    </>
+  );
+}
+
 export default function CreateBasket() {
   const router = useRouter();
   const connection = useConnection();
@@ -306,13 +476,55 @@ export default function CreateBasket() {
   }
 
   function updateWeight(symbol: string, value: string) {
+    const parsedWeight = Number(value);
+
     setComposition((current) =>
       current.map((asset) =>
         asset.symbol === symbol
-          ? { ...asset, weight: Math.max(0, Number(value) || 0) }
+          ? {
+              ...asset,
+              weight: Number.isFinite(parsedWeight)
+                ? Math.min(100, Math.max(0, parsedWeight))
+                : 0,
+            }
           : asset,
       ),
     );
+  }
+
+  function adjustWeight(symbol: string, delta: number) {
+    setComposition((current) =>
+      current.map((asset) =>
+        asset.symbol === symbol
+          ? { ...asset, weight: Math.min(100, Math.max(0, asset.weight + delta)) }
+          : asset,
+      ),
+    );
+  }
+
+  function applyEqualWeight() {
+    if (composition.length === 0) {
+      showToast("Add at least one Stock Token first.", "error");
+      return;
+    }
+
+    setComposition((current) => {
+      const baseWeightBps = Math.floor(10_000 / current.length);
+      const remainderBps = 10_000 % current.length;
+
+      return current.map((asset, index) => ({
+        ...asset,
+        weight: (baseWeightBps + (index < remainderBps ? 1 : 0)) / 100,
+      }));
+    });
+    showToast("Weights set equally to 100.00%.", "success");
+  }
+
+  function clearComposition() {
+    if (composition.length === 0) return;
+
+    setComposition([]);
+    showToast("Basket composition cleared.", "info");
   }
 
   function removeAsset(symbol: string) {
@@ -717,14 +929,14 @@ export default function CreateBasket() {
             className="relative z-10 grid gap-10 lg:grid-cols-[1fr_340px]"
             aria-labelledby="composition-heading"
           >
-            <div>
+            <div className="min-w-0 pb-24 lg:pb-0">
               <div className="mb-7 flex items-end justify-between gap-4">
                 <div>
                   <h2 id="composition-heading" className="mb-2 text-xl font-bold">
                     02 / Composition
                   </h2>
                   <p className="mono-label text-[#7B828C]">
-                    Select underlying assets and assign their allocation.
+                    Search active Robinhood Stock Tokens and add them to your basket.
                   </p>
                 </div>
                 <span className="mono-label hidden text-[#397BFF] sm:block">
@@ -742,6 +954,12 @@ export default function CreateBasket() {
                   className="w-full bg-transparent font-mono text-xs uppercase tracking-wider text-[#F1F1EA] outline-none placeholder:text-[#56606D]"
                 />
               </label>
+              <div className="mb-3 flex items-center justify-between border-b border-[#20252C] pb-3">
+                <p className="mono-label text-[#F1F1EA]">[ MARKET UNIVERSE ]</p>
+                <p className="mono-label text-[9px] text-[#7B828C]">
+                  {tokenRegistryLoading ? "SYNCING" : `${visibleTokenOptions.length} AVAILABLE`}
+                </p>
+              </div>
               {tokenRegistryLoading ? (
                 <p className="mono-label mb-6 border border-[#20252C] bg-[#101418] p-4 text-[#7B828C]">
                   LOADING OFFICIAL ROBINHOOD STOCK TOKENS
@@ -753,31 +971,35 @@ export default function CreateBasket() {
                 </p>
               ) : null}
               {showTokenOptions ? (
-                <div className="mb-6 border border-[#20252C] bg-[#101418]">
+                <div className="mb-6 max-h-[calc(100vh-22rem)] min-h-48 overflow-y-auto border border-[#20252C] bg-[#101418] lg:max-h-[calc(100vh-18rem)]">
                   {visibleTokenOptions.map((asset) => (
-                    <button
-                      key={asset.symbol}
-                      type="button"
-                      onClick={() => addAsset(asset)}
-                      className="flex w-full items-center justify-between border-b border-[#20252C] px-4 py-3 text-left last:border-0 hover:bg-[#1A1F26]"
+                    <article
+                      key={asset.contractAddress}
+                      className="flex items-center justify-between gap-4 border-b border-[#20252C] px-4 py-3 last:border-0 hover:bg-[#1A1F26]"
                     >
-                      <span>
-                        <strong className="financial-value text-sm">
+                      <div className="min-w-0">
+                        <strong className="financial-value text-sm text-[#F1F1EA]">
                           {asset.symbol}
                         </strong>
-                        <span className="mono-label ml-3 text-[10px]">
+                        <span className="mono-label ml-3 truncate text-[10px] text-[#7B828C]">
                           {asset.name}
                         </span>
-                      </span>
-                      <span className="flex items-center gap-3">
-                        {asset.priceUsd ? (
-                          <span className="financial-value text-xs text-[#7B828C]">
-                            ${asset.priceUsd.toFixed(2)}
-                          </span>
-                        ) : null}
-                        <IconArrowRight size={16} className="text-[#397BFF]" />
-                      </span>
-                    </button>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-3">
+                        <span className="financial-value hidden text-xs text-[#7B828C] sm:block">
+                          {asset.priceUsd === null
+                            ? "PRICE N/A"
+                            : `$${asset.priceUsd.toFixed(2)}`}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => addAsset(asset)}
+                          className="border border-[#397BFF] px-3 py-2 font-mono text-[10px] font-bold text-[#397BFF] transition-colors hover:bg-[#397BFF] hover:text-[#080A0C]"
+                        >
+                          ADD
+                        </button>
+                      </div>
+                    </article>
                   ))}
                 </div>
               ) : null}
@@ -801,88 +1023,39 @@ export default function CreateBasket() {
                   MAX {MAX_BASKET_ASSETS} ASSETS SELECTED FOR V1.
                 </p>
               ) : null}
-              <div className="border-t border-[#20252C]">
-                {composition.length === 0 ? (
-                  <p className="mono-label border-b border-[#20252C] py-6 text-[#7B828C]">
-                    SELECT OFFICIAL ROBINHOOD STOCK TOKENS TO CONTINUE.
-                  </p>
-                ) : null}
-                {composition.map((asset) => (
-                  <div
-                    key={asset.symbol}
-                    className="grid grid-cols-[1fr_100px_28px] items-center gap-4 border-b border-[#20252C] py-4"
-                  >
-                    <div className="flex items-center gap-3">
-                      <span
-                        className="h-2 w-2"
-                        style={{ backgroundColor: asset.tone }}
-                      />
-                      <span className="financial-value text-sm font-bold">
-                        {asset.symbol}
-                      </span>
-                      <span className="mono-label hidden text-[10px] sm:inline">
-                        {asset.name}
-                      </span>
-                      {asset.priceUsd ? (
-                        <span className="financial-value hidden text-[10px] text-[#7B828C] md:inline">
-                          ${asset.priceUsd.toFixed(2)}
-                        </span>
-                      ) : null}
-                    </div>
-                    <label className="flex items-center border border-[#20252C] bg-[#101418] px-2">
-                      <span className="sr-only">Weight for {asset.symbol}</span>
-                      <input
-                        type="number"
-                        min="0"
-                        max="100"
-                        value={asset.weight}
-                        onChange={(event) =>
-                          updateWeight(asset.symbol, event.target.value)
-                        }
-                        className="financial-value w-full bg-transparent py-2 text-right text-sm outline-none"
-                      />
-                      <span className="financial-value text-xs text-[#7B828C]">
-                        %
-                      </span>
-                    </label>
-                    <button
-                      type="button"
-                      aria-label={`Remove ${asset.symbol}`}
-                      onClick={() => removeAsset(asset.symbol)}
-                      className="text-[#7B828C] hover:text-red-400"
-                    >
-                      X
-                    </button>
-                  </div>
-                ))}
-              </div>
             </div>
-            <aside className="alive-ring z-10 h-fit border border-[#20252C] bg-[#101418] p-6 lg:sticky lg:top-24">
-              <p className="mono-label mb-4">WEIGHT MANAGEMENT</p>
-              <p
-                className={`financial-value mb-2 text-4xl font-bold ${
-                  validWeight ? "text-[#397BFF]" : "text-[#F1F1EA]"
-                }`}
-              >
-                {totalWeight.toFixed(2)}%
-              </p>
-              <p className="mono-label mb-7 text-[10px]">
-                TOTAL WEIGHT / TARGET 100.00%
-              </p>
-              <div className="h-1 bg-[#20252C]">
-                <div
-                  className={`h-full transition-all ${
-                    validWeight ? "bg-[#397BFF]" : "bg-[#7B828C]"
-                  }`}
-                  style={{ width: `${Math.min(totalWeight, 100)}%` }}
+            <aside className="alive-ring z-10 hidden h-fit border border-[#20252C] bg-[#101418] p-6 lg:sticky lg:top-24 lg:block">
+              <BasketAllocationPanel
+                assets={composition}
+                onAdjustWeight={adjustWeight}
+                onClear={clearComposition}
+                onEqualWeight={applyEqualWeight}
+                onRemove={removeAsset}
+                onWeightChange={updateWeight}
+                totalWeight={totalWeight}
+                validWeight={validWeight}
+              />
+            </aside>
+            <details className="group fixed inset-x-4 bottom-20 z-50 lg:hidden">
+              <summary className="flex cursor-pointer list-none items-center justify-between border border-[#397BFF] bg-[#101418] px-4 py-3 font-mono text-xs font-bold text-[#F1F1EA] shadow-2xl shadow-black/50 [&::-webkit-details-marker]:hidden">
+                <span>SELECTED ASSETS ({composition.length})</span>
+                <span className={validWeight ? "text-[#397BFF]" : "text-[#7B828C]"}>
+                  {totalWeight.toFixed(2)}%
+                </span>
+              </summary>
+              <div className="absolute bottom-full mb-2 max-h-[55vh] w-full overflow-y-auto border border-[#20252C] bg-[#101418] p-4 shadow-2xl shadow-black/50">
+                <BasketAllocationPanel
+                  assets={composition}
+                  onAdjustWeight={adjustWeight}
+                  onClear={clearComposition}
+                  onEqualWeight={applyEqualWeight}
+                  onRemove={removeAsset}
+                  onWeightChange={updateWeight}
+                  totalWeight={totalWeight}
+                  validWeight={validWeight}
                 />
               </div>
-              <p className="mono-label mt-8 border-t border-[#20252C] pt-5 leading-relaxed">
-                IMMUTABLE COMPOSITION
-                <br />
-                ERC-20 SHARE TOKEN
-              </p>
-            </aside>
+            </details>
           </section>
         ) : null}
 
