@@ -19,7 +19,7 @@ export const metadata: Metadata = {
   title: "SKOCCC",
   description: "Asset composition engine for tokenized market baskets.",
   metadataBase: new URL(
-    process.env.NEXT_PUBLIC_SITE_URL ?? "https://ponsfamily.com",
+    process.env.NEXT_PUBLIC_SITE_URL ?? "https://www.skoccc.com",
   ),
   icons: {
     icon: "/icon.svg",
