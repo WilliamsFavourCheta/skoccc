@@ -18,8 +18,22 @@ const jetBrainsMono = JetBrains_Mono({
 export const metadata: Metadata = {
   title: "SKOCCC",
   description: "Asset composition engine for tokenized market baskets.",
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_SITE_URL ?? "https://ponsfamily.com",
+  ),
   icons: {
     icon: "/icon.svg",
+  },
+  openGraph: {
+    title: "SKOCCC | Asset Composition Engine",
+    description: "Create and manage transparent, on-chain Stock Token baskets.",
+    siteName: "SKOCCC",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "SKOCCC | Asset Composition Engine",
+    description: "Create and manage transparent, on-chain Stock Token baskets.",
   },
 };
 
